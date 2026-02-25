@@ -2,12 +2,13 @@ import AppKit
 import Combine
 
 @MainActor
-final class AppLifecycleController {
+final class AppLifecycleController: NSObject {
   private let appState: AppState
   private let hotkeyManager: GlobalHotkeyManager
   private var windowCoordinator: WindowCoordinator?
 
   private var appActiveObserver: NSObjectProtocol?
+  private var dockRelevantWindows = Set<ObjectIdentifier>()
   private var cancellables = Set<AnyCancellable>()
   private var lowStorageWarningActive = false
   private var hasStarted = false
@@ -18,6 +19,7 @@ final class AppLifecycleController {
   ) {
     self.appState = appState
     self.hotkeyManager = hotkeyManager
+    super.init()
   }
 
   func start() {
@@ -28,6 +30,7 @@ final class AppLifecycleController {
     ensureUIControllers()
     configureHotkeys()
     observeApplicationState()
+    observeWindowState()
 
     windowCoordinator?.showOnboardingIfNeeded()
     appState.startAlwaysRecording()
@@ -41,12 +44,24 @@ final class AppLifecycleController {
       NotificationCenter.default.removeObserver(appActiveObserver)
       self.appActiveObserver = nil
     }
+    NotificationCenter.default.removeObserver(
+      self,
+      name: NSWindow.didBecomeKeyNotification,
+      object: nil
+    )
+    NotificationCenter.default.removeObserver(
+      self,
+      name: NSWindow.willCloseNotification,
+      object: nil
+    )
 
     hotkeyManager.configureActions(onSaveReplay: nil, onRecordToggle: nil)
     hotkeyManager.unregister()
     windowCoordinator?.closeLowStorageWarningIfNeeded()
     cancellables.removeAll()
     windowCoordinator = nil
+    dockRelevantWindows.removeAll()
+    NSApp.setActivationPolicy(.accessory)
   }
 
   private func ensureUIControllers() {
@@ -97,5 +112,41 @@ final class AppLifecycleController {
         }
       }
       .store(in: &cancellables)
+  }
+
+  private func observeWindowState() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleWindowDidBecomeKey(_:)),
+      name: NSWindow.didBecomeKeyNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleWindowWillClose(_:)),
+      name: NSWindow.willCloseNotification,
+      object: nil
+    )
+  }
+
+  @objc
+  private func handleWindowDidBecomeKey(_ notification: Notification) {
+    guard let window = notification.object as? NSWindow else { return }
+    guard window.styleMask.contains(.titled) else { return }
+    dockRelevantWindows.insert(ObjectIdentifier(window))
+    updateActivationPolicyForWindowVisibility()
+  }
+
+  @objc
+  private func handleWindowWillClose(_ notification: Notification) {
+    guard let window = notification.object as? NSWindow else { return }
+    dockRelevantWindows.remove(ObjectIdentifier(window))
+    updateActivationPolicyForWindowVisibility()
+  }
+
+  private func updateActivationPolicyForWindowVisibility() {
+    let targetPolicy: NSApplication.ActivationPolicy = dockRelevantWindows.isEmpty ? .accessory : .regular
+    guard NSApp.activationPolicy() != targetPolicy else { return }
+    NSApp.setActivationPolicy(targetPolicy)
   }
 }
