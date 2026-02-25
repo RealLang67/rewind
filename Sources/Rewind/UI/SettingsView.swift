@@ -294,11 +294,40 @@ private struct IntegrationsSettingsPane: View {
 }
 
 private struct AboutSettingsPane: View {
+  private var appVersion: String {
+    let shortVersion = normalizedVersion(
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    ) ?? normalizedVersion(ProcessInfo.processInfo.environment["REWIND_VERSION"])
+
+    let buildVersion = normalizedVersion(
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    )
+
+    if let shortVersion {
+      if let buildVersion, buildVersion != shortVersion {
+        return "\(shortVersion) (\(buildVersion))"
+      }
+      return shortVersion
+    }
+
+    if let buildVersion {
+      return buildVersion
+    }
+
+    return "Dev"
+  }
+
+  private func normalizedVersion(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
   var body: some View {
     Form {
       Section("Rewind") {
         LabeledContent("Version") {
-          Text("something")
+          Text(appVersion)
         }
       }
     }
