@@ -6,7 +6,6 @@ final class AppLifecycleController {
   private let appState: AppState
   private let hotkeyManager: GlobalHotkeyManager
   private var windowCoordinator: WindowCoordinator?
-  private var menuBarController: MenuBarController?
 
   private var appActiveObserver: NSObjectProtocol?
   private var cancellables = Set<AnyCancellable>()
@@ -47,21 +46,12 @@ final class AppLifecycleController {
     hotkeyManager.unregister()
     windowCoordinator?.closeLowStorageWarningIfNeeded()
     cancellables.removeAll()
-    menuBarController = nil
     windowCoordinator = nil
   }
 
   private func ensureUIControllers() {
     guard windowCoordinator == nil else { return }
-
-    let windowCoordinator = WindowCoordinator(appState: appState)
-    self.windowCoordinator = windowCoordinator
-    menuBarController = MenuBarController(
-      appState: appState,
-      onOpenSettings: {
-        windowCoordinator.showSettings()
-      }
-    )
+    windowCoordinator = WindowCoordinator()
   }
 
   private func configureHotkeys() {

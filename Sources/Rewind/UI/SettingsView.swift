@@ -4,246 +4,35 @@ import SwiftUI
 
 struct SettingsView: View {
   @ObservedObject var appState: AppState
-  private let rowLabelWidth: CGFloat = 130
-  private let durationFormatter: NumberFormatter = {
-    let formatter = NumberFormatter()
-    formatter.allowsFloats = false
-    formatter.minimum = NSNumber(value: AppSettings.replayDurationRange.lowerBound)
-    formatter.maximum = NSNumber(value: AppSettings.replayDurationRange.upperBound)
-    return formatter
-  }()
-  private let feedbackVolumeFormatter: NumberFormatter = {
-    let formatter = NumberFormatter()
-    formatter.allowsFloats = false
-    formatter.minimum = NSNumber(value: AppSettings.saveFeedbackVolumeRange.lowerBound)
-    formatter.maximum = NSNumber(value: AppSettings.saveFeedbackVolumeRange.upperBound)
-    return formatter
-  }()
+  @State private var didApplyWindowSizing = false
 
   private var settingsLocked: Bool {
     !appState.permissionState.screenRecording
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 14) {
-        if settingsLocked {
-          HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.fill")
-              .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 6) {
-              Text("Settings are locked until screen recording permission is granted.")
-                .font(.system(size: 12, weight: .medium))
-              Button("Open System Settings") {
-                PermissionManager.openSystemSettings()
-              }
-              .buttonStyle(.link)
-            }
-          }
-          .padding(.bottom, 4)
-        }
+    TabView {
+      CaptureSettingsPane(appState: appState, settingsLocked: settingsLocked)
+        .tabItem { Label("Capture", systemImage: "record.circle") }
 
-        Group {
-          sectionHeader("Capture")
+      HotkeysSettingsPane(appState: appState, settingsLocked: settingsLocked)
+        .tabItem { Label("Hotkeys", systemImage: "keyboard") }
 
-          settingsRow("Clip length") {
-            HStack(spacing: 8) {
-              Spacer(minLength: 0)
+      FeedbackSettingsPane(appState: appState, settingsLocked: settingsLocked)
+        .tabItem { Label("Feedback", systemImage: "speaker.wave.2") }
 
-              TextField("Seconds", value: $appState.replayDuration, formatter: durationFormatter)
-                .frame(width: 64)
-                .textFieldStyle(.roundedBorder)
-              Text("seconds")
-                .foregroundStyle(.secondary)
-            }
-          }
+      IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
+        .tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
-          settingsRow("Resolution") {
-            if appState.availableResolutions.isEmpty {
-              HStack(spacing: 8) {
-                Spacer(minLength: 0)
-
-                if appState.isLoadingResolutions {
-                  ProgressView()
-                    .controlSize(.small)
-                } else {
-                  Text(appState.resolutionLoadingMessage ?? "Resolution unavailable")
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 12))
-                  Button("Reload") {
-                    appState.refreshResolutions()
-                  }
-                  .buttonStyle(.link)
-                }
-              }
-            } else {
-              HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                Picker("Resolution", selection: $appState.selectedResolution) {
-                  ForEach(appState.availableResolutions) { resolution in
-                    Text(resolution.label).tag(Optional(resolution))
-                  }
-                }
-                .frame(width: 180)
-                .labelsHidden()
-                .pickerStyle(.menu)
-              }
-            }
-          }
-
-          settingsRow("Quality") {
-            HStack(spacing: 0) {
-              Spacer(minLength: 0)
-              Picker("Quality", selection: $appState.selectedQuality) {
-                ForEach(QualityPreset.presets) { preset in
-                  Text(preset.label).tag(preset)
-                }
-              }
-              .frame(width: 180)
-              .labelsHidden()
-              .pickerStyle(.menu)
-            }
-          }
-
-          settingsRow("Frame Rate") {
-            HStack(spacing: 0) {
-              Spacer(minLength: 0)
-              Picker("Frame Rate", selection: $appState.selectedFrameRate) {
-                ForEach(CaptureFrameRate.options) { option in
-                  Text(option.label).tag(option)
-                }
-              }
-              .frame(width: 180)
-              .labelsHidden()
-              .pickerStyle(.menu)
-            }
-          }
-
-          settingsRow("Container") {
-            HStack(spacing: 0) {
-              Spacer(minLength: 0)
-              Picker("Container", selection: $appState.selectedContainer) {
-                ForEach(CaptureContainer.options) { option in
-                  Text(option.label).tag(option)
-                }
-              }
-              .frame(width: 180)
-              .labelsHidden()
-              .pickerStyle(.menu)
-            }
-          }
-
-          settingsRow("Audio codec") {
-            HStack(spacing: 0) {
-              Spacer(minLength: 0)
-              Picker("Audio codec", selection: $appState.selectedAudioCodec) {
-                ForEach(CaptureAudioCodec.options) { option in
-                  Text(option.label).tag(option)
-                }
-              }
-              .frame(width: 180)
-              .labelsHidden()
-              .pickerStyle(.menu)
-            }
-          }
-
-          settingsRow("Always record") {
-            Toggle("", isOn: $appState.alwaysRecordEnabled)
-              .labelsHidden()
-              .toggleStyle(.switch)
-              .frame(maxWidth: .infinity, alignment: .trailing)
-          }
-
-          Divider()
-
-          sectionHeader("Hotkeys")
-
-          HotkeyRecorderView(
-            title: "Start/Stop recording",
-            hotkey: $appState.startRecordingHotkey,
-            labelWidth: rowLabelWidth
-          )
-
-          HotkeyRecorderView(
-            title: "Save last clip",
-            hotkey: $appState.hotkey,
-            labelWidth: rowLabelWidth
-          )
-
-          Divider()
-
-          sectionHeader("Feedback")
-
-          settingsRow("Save feedback") {
-            Toggle("", isOn: $appState.saveFeedbackEnabled)
-              .labelsHidden()
-              .toggleStyle(.switch)
-              .frame(maxWidth: .infinity, alignment: .trailing)
-          }
-
-          settingsRow("Feedback sound") {
-            HStack(spacing: 0) {
-              Spacer(minLength: 0)
-              Picker("Feedback sound", selection: $appState.saveFeedbackSound) {
-                ForEach(SaveFeedbackSound.options) { sound in
-                  Text(sound.label).tag(sound)
-                }
-              }
-              .frame(width: 180)
-              .labelsHidden()
-              .pickerStyle(.menu)
-              .disabled(!appState.saveFeedbackEnabled)
-            }
-          }
-
-          settingsRow("Feedback volume") {
-            HStack(spacing: 8) {
-              Spacer(minLength: 0)
-
-              TextField("1-100", value: $appState.saveFeedbackVolume, formatter: feedbackVolumeFormatter)
-                .frame(width: 52)
-                .textFieldStyle(.roundedBorder)
-                .disabled(!appState.saveFeedbackEnabled)
-
-              Text("/ 100")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .leading)
-            }
-          }
-
-          Divider()
-
-          sectionHeader("Integrations")
-
-          settingsRow("Discord RPC") {
-            Toggle("", isOn: $appState.discordRPCEnabled)
-              .labelsHidden()
-              .toggleStyle(.switch)
-              .frame(maxWidth: .infinity, alignment: .trailing)
-          }
-        }
-        .disabled(settingsLocked)
-
-        Divider()
-
-        sectionHeader("About")
-
-        HStack(spacing: 10) {
-          Text("Credits")
-            .frame(width: rowLabelWidth, alignment: .topLeading)
-
-          Spacer(minLength: 0)
-
-          VStack(alignment: .trailing, spacing: 2) {
-            Text("Built with ❤️ by lzov")
-          }
-        }
-      }
-      .padding(20)
-      .frame(maxWidth: .infinity, alignment: .leading)
+      AboutSettingsPane()
+        .tabItem { Label("About", systemImage: "info.circle") }
     }
-    .frame(minWidth: 460, minHeight: 500)
+    .frame(minWidth: 440, minHeight: 440)
+    .background(
+      WindowAccessor { window in
+        applyNaturalWindowSizeIfNeeded(window)
+      }
+    )
     .onAppear {
       appState.refreshPermissions()
       if appState.availableResolutions.isEmpty, !appState.isLoadingResolutions {
@@ -252,51 +41,310 @@ struct SettingsView: View {
     }
   }
 
-  private func settingsRow<Content: View>(
-    _ title: String,
-    @ViewBuilder content: () -> Content
-  ) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 12) {
-      Text(title)
-        .frame(width: rowLabelWidth, alignment: .leading)
-      content()
-      Spacer(minLength: 0)
-    }
-  }
+  private func applyNaturalWindowSizeIfNeeded(_ window: NSWindow) {
+    guard !didApplyWindowSizing else { return }
+    didApplyWindowSizing = true
 
-  private func sectionHeader(_ title: String) -> some View {
-    Text(title)
-      .font(.system(size: 11, weight: .semibold))
-      .foregroundStyle(.secondary)
-      .textCase(.uppercase)
-      .tracking(0.4)
-      .padding(.top, 2)
+    let naturalSize = NSSize(width: 520, height: 440)
+    window.contentMinSize = naturalSize
+    window.setContentSize(naturalSize)
   }
 }
 
-private struct HotkeyRecorderView: View {
+private struct CaptureSettingsPane: View {
+  @ObservedObject var appState: AppState
+  let settingsLocked: Bool
+
+  private var replayDurationRange: ClosedRange<Int> {
+    Int(AppSettings.replayDurationRange.lowerBound)...Int(AppSettings.replayDurationRange.upperBound)
+  }
+
+  private var replayDurationStep: Int {
+    max(1, Int(AppSettings.replayDurationStep))
+  }
+
+  private var replayDurationSecondsBinding: Binding<Int> {
+    Binding(
+      get: { Int(appState.replayDuration) },
+      set: { newValue in
+        let clampedValue = min(max(newValue, replayDurationRange.lowerBound), replayDurationRange.upperBound)
+        appState.replayDuration = TimeInterval(clampedValue)
+      }
+    )
+  }
+
+  var body: some View {
+    Form {
+      if settingsLocked {
+        PermissionNoticeRow()
+      }
+
+      Section("Recording") {
+        LabeledContent("Clip length") {
+          Stepper(
+            value: replayDurationSecondsBinding,
+            in: replayDurationRange,
+            step: replayDurationStep
+          ) {
+            Text("\(Int(appState.replayDuration)) seconds")
+              .foregroundStyle(.secondary)
+          }
+          .frame(width: 200, alignment: .trailing)
+        }
+
+        LabeledContent("Always record") {
+          Toggle("", isOn: $appState.alwaysRecordEnabled)
+            .labelsHidden()
+        }
+      }
+      .disabled(settingsLocked)
+
+      Section("Video") {
+        LabeledContent("Resolution") {
+          resolutionControl
+            .frame(width: 200, alignment: .trailing)
+        }
+
+        Picker("Quality", selection: $appState.selectedQuality) {
+          ForEach(QualityPreset.presets) { preset in
+            Text(preset.label).tag(preset)
+          }
+        }
+        .pickerStyle(.menu)
+
+        Picker("Frame rate", selection: $appState.selectedFrameRate) {
+          ForEach(CaptureFrameRate.options) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        .pickerStyle(.menu)
+      }
+      .disabled(settingsLocked)
+
+      Section("Output") {
+        Picker("Container", selection: $appState.selectedContainer) {
+          ForEach(CaptureContainer.options) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        .pickerStyle(.menu)
+
+        Picker("Audio codec", selection: $appState.selectedAudioCodec) {
+          ForEach(CaptureAudioCodec.options) { option in
+            Text(option.label).tag(option)
+          }
+        }
+        .pickerStyle(.menu)
+      }
+      .disabled(settingsLocked)
+    }
+    .formStyle(.grouped)
+  }
+
+  @ViewBuilder
+  private var resolutionControl: some View {
+    if appState.availableResolutions.isEmpty {
+      if appState.isLoadingResolutions {
+        ProgressView()
+          .controlSize(.small)
+      } else {
+        HStack(spacing: 8) {
+          Text(appState.resolutionLoadingMessage ?? "Resolution unavailable")
+            .foregroundStyle(.secondary)
+          Button("Reload") {
+            appState.refreshResolutions()
+          }
+          .buttonStyle(.link)
+        }
+      }
+    } else {
+      Picker("Resolution", selection: $appState.selectedResolution) {
+        ForEach(appState.availableResolutions) { resolution in
+          Text(resolution.label).tag(Optional(resolution))
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+    }
+  }
+}
+
+private struct HotkeysSettingsPane: View {
+  @ObservedObject var appState: AppState
+  let settingsLocked: Bool
+
+  var body: some View {
+    Form {
+      if settingsLocked {
+        PermissionNoticeRow()
+      }
+
+      Section("Shortcuts") {
+        HotkeyRecorderRow(title: "Start/Stop recording", hotkey: $appState.startRecordingHotkey)
+        HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+      }
+      .disabled(settingsLocked)
+
+      Section {
+        Text("Press Escape to cancel recording. Shortcuts must include at least one modifier key.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+  }
+}
+
+private struct FeedbackSettingsPane: View {
+  @ObservedObject var appState: AppState
+  let settingsLocked: Bool
+
+  private var feedbackVolumeRange: ClosedRange<Int> {
+    Int(AppSettings.saveFeedbackVolumeRange.lowerBound)...Int(AppSettings.saveFeedbackVolumeRange.upperBound)
+  }
+
+  private var feedbackVolumeInputBinding: Binding<Int> {
+    Binding(
+      get: {
+        Int(appState.saveFeedbackVolume.rounded())
+      },
+      set: { newValue in
+        let clampedValue = min(max(newValue, feedbackVolumeRange.lowerBound), feedbackVolumeRange.upperBound)
+        appState.saveFeedbackVolume = Double(clampedValue)
+      }
+    )
+  }
+
+  var body: some View {
+    Form {
+      if settingsLocked {
+        PermissionNoticeRow()
+      }
+
+      Section("Save Feedback") {
+        Toggle("Enable save feedback", isOn: $appState.saveFeedbackEnabled)
+
+        Picker("Feedback sound", selection: $appState.saveFeedbackSound) {
+          ForEach(SaveFeedbackSound.options) { sound in
+            Text(sound.label).tag(sound)
+          }
+        }
+        .pickerStyle(.menu)
+        .disabled(!appState.saveFeedbackEnabled)
+
+        LabeledContent("Feedback volume") {
+          HStack(spacing: 6) {
+            TextField("", value: feedbackVolumeInputBinding, format: .number.grouping(.never))
+              .textFieldStyle(.roundedBorder)
+              .multilineTextAlignment(.trailing)
+              .frame(width: 64)
+              .help("Range: \(feedbackVolumeRange.lowerBound)-\(feedbackVolumeRange.upperBound)")
+            .disabled(!appState.saveFeedbackEnabled)
+
+            Text("%")
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+      .disabled(settingsLocked)
+    }
+    .formStyle(.grouped)
+  }
+}
+
+private struct WindowAccessor: NSViewRepresentable {
+  let onResolve: (NSWindow) -> Void
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    DispatchQueue.main.async {
+      if let window = view.window {
+        onResolve(window)
+      }
+    }
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    DispatchQueue.main.async {
+      if let window = nsView.window {
+        onResolve(window)
+      }
+    }
+  }
+}
+
+private struct IntegrationsSettingsPane: View {
+  @ObservedObject var appState: AppState
+  let settingsLocked: Bool
+
+  var body: some View {
+    Form {
+      if settingsLocked {
+        PermissionNoticeRow()
+      }
+
+      Section("Connections") {
+        Toggle("Enable Discord RPC", isOn: $appState.discordRPCEnabled)
+      }
+      .disabled(settingsLocked)
+    }
+    .formStyle(.grouped)
+  }
+}
+
+private struct AboutSettingsPane: View {
+  var body: some View {
+    Form {
+      Section("Rewind") {
+        LabeledContent("Version") {
+          Text("something")
+        }
+      }
+    }
+    .formStyle(.grouped)
+  }
+}
+
+private struct PermissionNoticeRow: View {
+  var body: some View {
+    Section {
+      VStack(alignment: .leading, spacing: 8) {
+        Label("Screen recording permission is required to change capture settings.", systemImage: "lock.fill")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+
+        Button("Open System Settings") {
+          PermissionManager.openSystemSettings()
+        }
+      }
+      .padding(.vertical, 2)
+    }
+  }
+}
+
+private struct HotkeyRecorderRow: View {
   let title: String
   @Binding var hotkey: Hotkey
-  let labelWidth: CGFloat
   @State private var isRecording = false
   @State private var monitor: Any?
 
   var body: some View {
-    HStack(spacing: 12) {
-      Text(title)
-        .frame(width: labelWidth, alignment: .leading)
-      Spacer()
-      Text(isRecording ? "Press keys…" : hotkey.displayString)
-        .foregroundStyle(.secondary)
-      Button(isRecording ? "Cancel" : "Change") {
-        if isRecording {
-          stopRecording()
-        } else {
-          startRecording()
+    LabeledContent(title) {
+      HStack(spacing: 10) {
+        Text(isRecording ? "Press keys..." : hotkey.displayString)
+          .foregroundStyle(.secondary)
+          .monospaced()
+
+        Button(isRecording ? "Cancel" : "Record") {
+          if isRecording {
+            stopRecording()
+          } else {
+            startRecording()
+          }
         }
+        .controlSize(.small)
       }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
     }
     .onDisappear {
       stopRecording()
@@ -306,16 +354,20 @@ private struct HotkeyRecorderView: View {
   private func startRecording() {
     isRecording = true
     if monitor != nil { return }
+
     monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
       guard isRecording else { return event }
+
       if event.keyCode == UInt16(kVK_Escape) {
         stopRecording()
         return nil
       }
+
       let relevantFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
       if relevantFlags.isEmpty {
         return nil
       }
+
       hotkey = Hotkey(keyCode: UInt32(event.keyCode), modifiers: relevantFlags.carbonModifiers)
       stopRecording()
       return nil

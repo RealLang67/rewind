@@ -3,7 +3,6 @@ import SwiftUI
 
 struct LowStorageWarningView: View {
   let warningMessage: String
-  let openSettings: () -> Void
   let close: () -> Void
 
   var body: some View {

@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 struct OnboardingView: View {
-  let openSettings: () -> Void
   let close: () -> Void
 
   var body: some View {
@@ -34,10 +33,7 @@ struct OnboardingView: View {
       Spacer(minLength: 0)
 
       HStack {
-        Button("Open Settings") {
-          openSettings()
-        }
-        .buttonStyle(.bordered)
+        openSettingsButton
 
         Spacer()
 
@@ -49,5 +45,17 @@ struct OnboardingView: View {
     }
     .padding(22)
     .frame(width: 520, height: 340)
+  }
+
+  @ViewBuilder
+  private var openSettingsButton: some View {
+    if #available(macOS 14.0, *) {
+      SettingsLink {
+        Text("Open Settings")
+      }
+      .buttonStyle(.bordered)
+    } else {
+      Text("version too old")
+    }
   }
 }

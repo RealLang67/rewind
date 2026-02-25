@@ -1,87 +1,214 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
-  @EnvironmentObject private var appState: AppState
+  @ObservedObject var appState: AppState
 
   var body: some View {
-    VStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Rewind")
-          .font(.system(size: 18, weight: .semibold))
-        Text(appState.isCapturing ? "Recording" : "Idle")
-          .foregroundStyle(appState.isCapturing ? .red : .secondary)
-          .font(.system(size: 12, weight: .medium))
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-
-      HStack(spacing: 10) {
-        Button(recordingButtonTitle) {
-          appState.toggleCapture()
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(appState.alwaysRecordEnabled && appState.isCapturing)
-
-        Button("Save Last \(Int(appState.replayDuration))s") {
-          appState.saveReplay()
-        }
-        .buttonStyle(.bordered)
-        .disabled(!appState.isCapturing)
-      }
-
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text("Replay")
-            .font(.system(size: 12, weight: .medium))
-          Spacer()
-          Text("\(Int(appState.replayDuration))s")
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-        }
-        Slider(
-          value: $appState.replayDuration,
-          in: AppSettings.replayDurationRange,
-          step: AppSettings.replayDurationStep
-        )
-      }
-
-      VStack(alignment: .leading, spacing: 6) {
-        if let clip = appState.lastClip {
-          Text("Saved")
-            .font(.system(size: 12, weight: .medium))
-          Text(clip.url.lastPathComponent)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        } else {
-          Text("No recent clips")
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-
-      HStack {
-        Button("Permissions") {
-          appState.refreshPermissions()
-        }
-        .buttonStyle(.borderless)
-
-        Spacer()
-
-        Button("Quit") {
-          NSApp.terminate(nil)
-        }
-        .buttonStyle(.borderless)
-      }
-      .font(.system(size: 12))
+    Button(recordingButtonTitle) {
+      appState.toggleCapture()
     }
-    .padding(16)
+    .disabled(recordingButtonDisabled)
+    .applyHotkey(appState.startRecordingHotkey)
+
+    Button("Save Last \(Int(appState.replayDuration))s") {
+      appState.saveReplay()
+    }
+    .disabled(!appState.isCapturing)
+    .applyHotkey(appState.hotkey)
+
+    Divider()
+
+    Menu("Replay Duration") {
+      ForEach(replayDurationOptions, id: \.self) { duration in
+        Toggle(
+          "\(duration)s",
+          isOn: Binding(
+            get: {
+              Int(appState.replayDuration) == duration
+            },
+            set: { isEnabled in
+              if isEnabled {
+                appState.replayDuration = TimeInterval(duration)
+              }
+            }
+          )
+        )
+        .toggleStyle(.checkbox)
+        .help("Set replay duration to \(duration) seconds")
+      }
+    }
+
+    Menu("Resolution") {
+      resolutionMenuContent
+    }
+    .disabled(appState.isCapturing)
+
+    Menu("Quality") {
+      ForEach(QualityPreset.presets) { preset in
+        Toggle(
+          preset.label,
+          isOn: Binding(
+            get: {
+              appState.selectedQuality.id == preset.id
+            },
+            set: { isEnabled in
+              if isEnabled {
+                appState.selectedQuality = preset
+              }
+            }
+          )
+        )
+        .toggleStyle(.checkbox)
+      }
+    }
+    .disabled(appState.isCapturing)
+
+    Button("Show in Finder") {
+      showLastClipInFinder()
+    }
+    .disabled(appState.lastClip == nil)
+
+    if !appState.permissionState.screenRecording {
+      Divider()
+      Button("⚠ Screen Recording Required") {
+        PermissionManager.openSystemSettings()
+      }
+    }
+
+    Divider()
+
+    settingsMenuItem
+
+    Button("Quit Rewind") {
+      NSApp.terminate(nil)
+    }
+    .keyboardShortcut("q", modifiers: .command)
+  }
+
+  private var replayDurationOptions: [Int] {
+    var durations = AppSettings.replayDurationQuickOptions
+    let currentDuration = Int(appState.replayDuration)
+    if !durations.contains(currentDuration) {
+      durations.append(currentDuration)
+      durations.sort()
+    }
+    return durations
   }
 
   private var recordingButtonTitle: String {
     if appState.alwaysRecordEnabled {
-      return appState.isCapturing ? "Recording (Always)" : "Start"
+      return appState.isCapturing ? "Recording (Always)" : "Start Recording"
     }
-    return appState.isCapturing ? "Stop" : "Start"
+    return appState.isCapturing ? "Stop Recording" : "Start Recording"
+  }
+
+  private var recordingButtonDisabled: Bool {
+    appState.alwaysRecordEnabled && appState.isCapturing
+  }
+
+  @ViewBuilder
+  private var resolutionMenuContent: some View {
+    if appState.availableResolutions.isEmpty {
+      if appState.isLoadingResolutions {
+        Text("Loading…")
+      } else {
+        if let resolutionLoadingMessage = appState.resolutionLoadingMessage {
+          Text(resolutionLoadingMessage)
+        }
+        Button("Refresh Resolutions") {
+          appState.refreshResolutions()
+        }
+      }
+    } else {
+      ForEach(appState.availableResolutions) { resolution in
+        Toggle(
+          resolution.label,
+          isOn: Binding(
+            get: {
+              appState.selectedResolution?.id == resolution.id
+            },
+            set: { isEnabled in
+              if isEnabled {
+                appState.selectedResolution = resolution
+              }
+            }
+          )
+        )
+        .toggleStyle(.checkbox)
+      }
+      Divider()
+      Button("Refresh Resolutions") {
+        appState.refreshResolutions()
+      }
+    }
+  }
+
+  private func showLastClipInFinder() {
+    guard let clip = appState.lastClip else { return }
+    NSWorkspace.shared.activateFileViewerSelecting([clip.url])
+  }
+
+  @ViewBuilder
+  private var settingsMenuItem: some View {
+    if #available(macOS 14.0, *) {
+      OpenSettingsMenuItem()
+    }
+  }
+}
+
+@available(macOS 14.0, *)
+private struct OpenSettingsMenuItem: View {
+  @Environment(\.openSettings) private var openSettings
+
+  var body: some View {
+    Button("Settings…") {
+      NSApp.activate(ignoringOtherApps: true)
+      DispatchQueue.main.async {
+        openSettings()
+      }
+    }
+    .keyboardShortcut(",", modifiers: .command)
+  }
+}
+
+private extension View {
+  @ViewBuilder
+  func applyHotkey(_ hotkey: Hotkey) -> some View {
+    if let keyEquivalent = hotkey.keyEquivalent {
+      keyboardShortcut(keyEquivalent, modifiers: hotkey.eventModifiers)
+    } else {
+      self
+    }
+  }
+}
+
+private extension Hotkey {
+  var keyEquivalent: KeyEquivalent? {
+    guard let keyCharacter = menuKeyEquivalent.first else { return nil }
+    return KeyEquivalent(keyCharacter)
+  }
+
+  var eventModifiers: EventModifiers {
+    EventModifiers(modifierFlags)
+  }
+}
+
+private extension EventModifiers {
+  init(_ modifierFlags: NSEvent.ModifierFlags) {
+    var eventModifiers: EventModifiers = []
+    if modifierFlags.contains(.command) {
+      eventModifiers.insert(.command)
+    }
+    if modifierFlags.contains(.shift) {
+      eventModifiers.insert(.shift)
+    }
+    if modifierFlags.contains(.option) {
+      eventModifiers.insert(.option)
+    }
+    if modifierFlags.contains(.control) {
+      eventModifiers.insert(.control)
+    }
+    self = eventModifiers
   }
 }

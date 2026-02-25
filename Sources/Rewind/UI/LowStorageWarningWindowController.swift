@@ -3,21 +3,12 @@ import SwiftUI
 
 @MainActor
 final class LowStorageWarningWindowController: NSObject, NSWindowDelegate {
-  private let settingsWindowController: SettingsWindowController
   private var window: NSWindow?
-
-  init(settingsWindowController: SettingsWindowController) {
-    self.settingsWindowController = settingsWindowController
-    super.init()
-  }
 
   func show(warningMessage: String) {
     if window == nil {
       let view = LowStorageWarningView(
         warningMessage: warningMessage,
-        openSettings: {
-          self.settingsWindowController.show()
-        },
         close: { [weak self] in
           self?.window?.close()
         }
@@ -35,9 +26,6 @@ final class LowStorageWarningWindowController: NSObject, NSWindowDelegate {
     } else if let hostingController = window?.contentViewController as? NSHostingController<LowStorageWarningView> {
       hostingController.rootView = LowStorageWarningView(
         warningMessage: warningMessage,
-        openSettings: {
-          self.settingsWindowController.show()
-        },
         close: { [weak self] in
           self?.window?.close()
         }
