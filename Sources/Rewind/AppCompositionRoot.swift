@@ -7,12 +7,14 @@ final class AppCompositionRoot {
 
   private init() {
     let hotkeyManager = GlobalHotkeyManager.shared
+    let updateChecker = HomebrewUpdateChecker()
     let appState = AppState(hotkeyManager: hotkeyManager)
 
     self.appState = appState
     lifecycleController = AppLifecycleController(
       appState: appState,
-      hotkeyManager: hotkeyManager
+      hotkeyManager: hotkeyManager,
+      updateChecker: updateChecker
     )
   }
 }
