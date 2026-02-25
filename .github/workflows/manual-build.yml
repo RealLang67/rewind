@@ -118,8 +118,9 @@ jobs:
           SOURCE_REPO: ${{ github.repository }}
         run: |
           mkdir -p "tap/Casks"
-          cat > "tap/Casks/rewind.rb" <<RUBY
-          cask "rewind" do
+          rm -f "tap/Casks/rewind.rb"
+          cat > "tap/Casks/rewind-app.rb" <<RUBY
+          cask "rewind-app" do
             version "${{ steps.cask_meta.outputs.version }}"
             sha256 "${{ steps.cask_meta.outputs.sha256 }}"
 
@@ -141,6 +142,6 @@ jobs:
         run: |
           git -C tap config user.name "github-actions[bot]"
           git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C tap add "Casks/rewind.rb"
-          git -C tap commit -m "cask(rewind): bump to ${{ steps.cask_meta.outputs.tag }}" || exit 0
+          git -C tap add "Casks/rewind-app.rb" "Casks/rewind.rb"
+          git -C tap commit -m "cask(rewind-app): bump to ${{ steps.cask_meta.outputs.tag }}" || exit 0
           git -C tap push
