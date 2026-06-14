@@ -137,6 +137,15 @@ final class AppState: ObservableObject {
       }
     }
   }
+
+  @Published var useBFrames = AppSettings.default.useBFrames {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard useBFrames != oldValue else { return }
+      persistSettings()
+    }
+  }
+
   @Published private(set) var lowStorageWarningMessage: String?
 
   private let captureManager: CaptureManager
@@ -178,6 +187,7 @@ final class AppState: ObservableObject {
     saveFeedbackVolume = settings.saveFeedbackVolume
     saveFeedbackSound = settings.saveFeedbackSound
     discordRPCEnabled = settings.discordRPCEnabled
+    useBFrames = settings.useBFrames
     isRestoringSettings = false
     Task { [weak self] in
       await self?.captureManager.setOnCaptureInterruptedHandler { error in
@@ -281,7 +291,8 @@ final class AppState: ObservableObject {
         resolution: selectedResolution,
         quality: selectedQuality,
         frameRate: selectedFrameRate.framesPerSecond,
-        audioCodec: selectedAudioCodec
+        audioCodec: selectedAudioCodec,
+        useBFrames: useBFrames
       )
       isCapturing = true
       updateDiscordActivity(.recording)
@@ -416,7 +427,8 @@ final class AppState: ObservableObject {
         saveFeedbackEnabled: saveFeedbackEnabled,
         saveFeedbackVolume: saveFeedbackVolume,
         saveFeedbackSoundID: saveFeedbackSound.id,
-        discordRPCEnabled: discordRPCEnabled
+        discordRPCEnabled: discordRPCEnabled,
+        useBFrames: useBFrames
       )
     )
   }

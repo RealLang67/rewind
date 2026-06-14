@@ -95,6 +95,7 @@ private struct CaptureSettingsPane: View {
         LabeledContent("Always record") {
           Toggle("", isOn: $appState.alwaysRecordEnabled)
             .labelsHidden()
+            .toggleStyle(.switch)
         }
       }
       .disabled(settingsLocked)
@@ -118,6 +119,9 @@ private struct CaptureSettingsPane: View {
           }
         }
         .pickerStyle(.menu)
+
+        Toggle("Use B-Frames (Experimental)", isOn: $appState.useBFrames)
+          .help("Improves quality at no file size cost, but may cause bugs.")
       }
       .disabled(settingsLocked)
 

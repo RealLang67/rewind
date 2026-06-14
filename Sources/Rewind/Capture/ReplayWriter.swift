@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
+import VideoToolbox
 
 final class ReplayWriter: @unchecked Sendable {
   enum VideoMode {
@@ -48,6 +49,7 @@ final class ReplayWriter: @unchecked Sendable {
   private var configuredVideoMode: VideoMode = .pixelBufferEncode
   private var configuredQuality: QualityPreset = .default
   private var configuredFrameRate = Constants.defaultFrameRate
+  private var configuredUseBFrames = false
   private var includeAudio = false
   private var requiresAudioForSession = false
   private var sessionStarted = false
@@ -95,7 +97,8 @@ final class ReplayWriter: @unchecked Sendable {
     audioSettings: [String: Any]?,
     videoMode: VideoMode = .pixelBufferEncode,
     quality: QualityPreset = .default,
-    frameRate: Int = Constants.defaultFrameRate
+    frameRate: Int = Constants.defaultFrameRate,
+    useBFrames: Bool = false
   ) throws {
     var configureError: Error?
     syncOnQueue {
@@ -107,7 +110,8 @@ final class ReplayWriter: @unchecked Sendable {
           audioSettings: audioSettings,
           videoMode: videoMode,
           quality: quality,
-          frameRate: frameRate
+          frameRate: frameRate,
+          useBFrames: useBFrames
         )
       } catch {
         configureError = error
@@ -124,7 +128,8 @@ final class ReplayWriter: @unchecked Sendable {
     audioSettings: [String: Any]?,
     videoMode: VideoMode,
     quality: QualityPreset,
-    frameRate: Int
+    frameRate: Int,
+    useBFrames: Bool
   ) throws {
     guard outputURL.isFileURL else {
       throw CaptureError.exportFailed
@@ -161,7 +166,8 @@ final class ReplayWriter: @unchecked Sendable {
       videoSettings[AVVideoCompressionPropertiesKey] = videoCompressionProperties(
         for: quality,
         videoSize: CGSize(width: width, height: height),
-        frameRate: frameRate
+        frameRate: frameRate,
+        useBFrames: useBFrames
       )
       videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
 
@@ -209,6 +215,7 @@ final class ReplayWriter: @unchecked Sendable {
     self.configuredVideoMode = videoMode
     self.configuredQuality = quality
     self.configuredFrameRate = frameRate
+    self.configuredUseBFrames = useBFrames
     self.includeAudio = includeAudio
     self.requiresAudioForSession = includeAudio && audioInput != nil
 
@@ -224,19 +231,26 @@ final class ReplayWriter: @unchecked Sendable {
   private func videoCompressionProperties(
     for quality: QualityPreset,
     videoSize: CGSize,
-    frameRate: Int
+    frameRate: Int,
+    useBFrames: Bool
   ) -> [String: Any] {
     let normalizedFrameRate = max(30, min(frameRate, 60))
     let averageBitrateMbps = targetBitrateMbps(for: quality, videoSize: videoSize, frameRate: normalizedFrameRate)
     let averageBitrate = Int((averageBitrateMbps * 1_000_000).rounded())
     let keyframeInterval = max(normalizedFrameRate, Int((Double(normalizedFrameRate) * 1.5).rounded()))
 
+    // VBR bursting
+    let burstMultiplier = useBFrames ? 1.5 : 2.0
+    let burstWindowSeconds = 2
+    let maxBitrate = Int((averageBitrateMbps * burstMultiplier * 1_000_000).rounded())
+
     return [
       AVVideoAverageBitRateKey: averageBitrate,
       AVVideoExpectedSourceFrameRateKey: normalizedFrameRate,
       AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
       AVVideoMaxKeyFrameIntervalDurationKey: 1.5,
-      AVVideoAllowFrameReorderingKey: false
+      AVVideoAllowFrameReorderingKey: useBFrames,
+      kVTCompressionPropertyKey_DataRateLimits as String: [(maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds]
     ]
   }
 
@@ -393,7 +407,8 @@ final class ReplayWriter: @unchecked Sendable {
         audioSettings: configuredAudioSettings,
         videoMode: desiredMode,
         quality: configuredQuality,
-        frameRate: configuredFrameRate
+        frameRate: configuredFrameRate,
+        useBFrames: configuredUseBFrames
       )
     } catch {
       logWriterError("ReplayWriter.appendVideo reconfigure failed", error)
@@ -424,7 +439,8 @@ final class ReplayWriter: @unchecked Sendable {
         audioSettings: configuredAudioSettings,
         videoMode: configuredVideoMode,
         quality: configuredQuality,
-        frameRate: configuredFrameRate
+        frameRate: configuredFrameRate,
+        useBFrames: configuredUseBFrames
       )
     } catch {
       logWriterError("ReplayWriter.appendVideo reconfigure failed", error)

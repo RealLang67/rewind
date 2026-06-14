@@ -27,6 +27,7 @@ actor CaptureManager {
   private var currentQuality: QualityPreset = .default
   private var currentFrameRate: Int = CaptureFrameRate.default.framesPerSecond
   private var currentAudioCodec: CaptureAudioCodec = .default
+  private var useBFrames: Bool = false
   private var onCaptureInterrupted: (@MainActor (Error) -> Void)?
 
   /// thread-safe reference to current writer for use in callbacks
@@ -67,13 +68,15 @@ actor CaptureManager {
     resolution: CaptureResolution? = nil,
     quality: QualityPreset = .default,
     frameRate: Int = CaptureFrameRate.default.framesPerSecond,
-    audioCodec: CaptureAudioCodec = .default
+    audioCodec: CaptureAudioCodec = .default,
+    useBFrames: Bool = false
   ) async throws {
     guard !isRunning else { return }
     currentResolution = resolution
     currentQuality = quality
     currentFrameRate = frameRate
     currentAudioCodec = audioCodec
+    self.useBFrames = useBFrames
     do {
       try await screenCapture.startCapture(
         resolution: resolution,
@@ -158,7 +161,8 @@ actor CaptureManager {
       includeAudio: true,
       audioSettings: captureAudioSettings,
       quality: currentQuality,
-      frameRate: currentFrameRate
+      frameRate: currentFrameRate,
+      useBFrames: useBFrames
     )
   }
 
@@ -174,7 +178,8 @@ actor CaptureManager {
         includeAudio: true,
         audioSettings: captureAudioSettings,
         quality: currentQuality,
-        frameRate: currentFrameRate
+        frameRate: currentFrameRate,
+        useBFrames: useBFrames
       )
       standbyWriter = writer
     } catch {

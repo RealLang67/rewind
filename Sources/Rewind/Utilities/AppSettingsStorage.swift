@@ -20,6 +20,7 @@ struct AppSettings: Codable, Sendable {
   var saveFeedbackVolume: Double
   var saveFeedbackSoundID: String
   var discordRPCEnabled: Bool
+  var useBFrames: Bool
 
   static let `default` = AppSettings(
     replayDuration: 30,
@@ -34,7 +35,8 @@ struct AppSettings: Codable, Sendable {
     saveFeedbackEnabled: true,
     saveFeedbackVolume: 20,
     saveFeedbackSoundID: SaveFeedbackSound.default.id,
-    discordRPCEnabled: true
+    discordRPCEnabled: true,
+    useBFrames: false
   )
 
   private enum CodingKeys: String, CodingKey {
@@ -51,6 +53,7 @@ struct AppSettings: Codable, Sendable {
     case saveFeedbackVolume
     case saveFeedbackSoundID
     case discordRPCEnabled
+    case useBFrames
   }
 
   init(
@@ -66,7 +69,8 @@ struct AppSettings: Codable, Sendable {
     saveFeedbackEnabled: Bool,
     saveFeedbackVolume: Double,
     saveFeedbackSoundID: String,
-    discordRPCEnabled: Bool
+    discordRPCEnabled: Bool,
+    useBFrames: Bool
   ) {
     self.replayDuration = replayDuration
     self.resolutionID = resolutionID
@@ -81,6 +85,7 @@ struct AppSettings: Codable, Sendable {
     self.saveFeedbackVolume = saveFeedbackVolume
     self.saveFeedbackSoundID = saveFeedbackSoundID
     self.discordRPCEnabled = discordRPCEnabled
+    self.useBFrames = useBFrames
   }
 
   init(from decoder: Decoder) throws {
@@ -101,6 +106,7 @@ struct AppSettings: Codable, Sendable {
     saveFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .saveFeedbackSoundID)
       ?? SaveFeedbackSound.default.id
     discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
+    useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? false
   }
 
   var qualityPreset: QualityPreset {
