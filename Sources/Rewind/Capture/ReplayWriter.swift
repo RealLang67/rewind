@@ -244,14 +244,19 @@ final class ReplayWriter: @unchecked Sendable {
     let burstWindowSeconds = 2
     let maxBitrate = Int((averageBitrateMbps * burstMultiplier * 1_000_000).rounded())
 
-    return [
+    var props: [String: Any] = [
       AVVideoAverageBitRateKey: averageBitrate,
       AVVideoExpectedSourceFrameRateKey: normalizedFrameRate,
       AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
       AVVideoMaxKeyFrameIntervalDurationKey: 1.5,
-      AVVideoAllowFrameReorderingKey: useBFrames,
-      kVTCompressionPropertyKey_DataRateLimits as String: [(maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds]
+      AVVideoAllowFrameReorderingKey: useBFrames
     ]
+
+    if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+      props[kVTCompressionPropertyKey_DataRateLimits as String] = [(maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds]
+    }
+
+    return props
   }
 
   private func targetBitrateMbps(for quality: QualityPreset, videoSize: CGSize, frameRate: Int) -> Double {
