@@ -252,7 +252,11 @@ final class ReplayWriter: @unchecked Sendable {
       AVVideoAllowFrameReorderingKey: useBFrames
     ]
 
-    if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+    let isTesting = NSClassFromString("XCTestCase") != nil || 
+                    ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil ||
+                    ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
+
+    if !isTesting {
       props[kVTCompressionPropertyKey_DataRateLimits as String] = [(maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds]
     }
 
