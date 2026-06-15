@@ -111,9 +111,9 @@ done
 shopt -u dotglob nullglob
 
 echo "Building ${APP_NAME} in release mode..."
-swift build -c release --package-path "${PROJECT_ROOT}" --product "${APP_NAME}"
+swift build -c release --package-path "${PROJECT_ROOT}" --product "${APP_NAME}" --arch arm64 --arch x86_64
 
-BIN_DIR="$(swift build -c release --package-path "${PROJECT_ROOT}" --show-bin-path)"
+BIN_DIR="$(swift build -c release --package-path "${PROJECT_ROOT}" --show-bin-path --arch arm64 --arch x86_64)"
 EXECUTABLE_PATH="${BIN_DIR}/${APP_NAME}"
 
 if [[ ! -x "${EXECUTABLE_PATH}" ]]; then
