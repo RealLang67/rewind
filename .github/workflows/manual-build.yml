@@ -58,12 +58,9 @@ jobs:
             exit 1
           fi
           
-          echo "${SPARKLE_PRIVATE_KEY}" > sparkle_priv.txt
-          .build/artifacts/sparkle/Sparkle/bin/generate_keys -f sparkle_priv.txt
-          
           # Move zip out temporarily to avoid duplicate archive error
           mv dist/*.zip ./
-          .build/artifacts/sparkle/Sparkle/bin/generate_appcast --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+          echo "${SPARKLE_PRIVATE_KEY}" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
           mv ./*.zip dist/
 
       - name: Deploy Appcast to GitHub Pages
