@@ -58,6 +58,7 @@ APP_BUNDLE="${STAGING_ROOT}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 DIST_APP_BUNDLE="${DIST_DIR}/${APP_NAME}.app"
 
 cleanup() {
@@ -90,14 +91,20 @@ remove_path() {
 adhoc_sign() {
   local target_path="$1"
   local label="$2"
+  local entitlements="$3"
 
   if ! command -v codesign >/dev/null 2>&1; then
     echo "codesign is required to sign ${label}" >&2
     return 1
   fi
 
+  local opts=("--force" "--deep" "--sign" "-" "--timestamp=none")
+  if [[ -n "${entitlements}" ]]; then
+    opts+=("--entitlements" "${entitlements}" "--options" "runtime")
+  fi
+
   echo "Adhoc signing ${label}..."
-  codesign --force --deep --sign - --timestamp=none "${target_path}"
+  codesign "${opts[@]}" "${target_path}"
   codesign --verify --deep --strict --verbose=2 "${target_path}"
 }
 
@@ -122,7 +129,7 @@ if [[ ! -x "${EXECUTABLE_PATH}" ]]; then
 fi
 
 echo "Creating app bundle..."
-mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
+mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 
 cp "${EXECUTABLE_PATH}" "${MACOS_DIR}/${APP_NAME}"
 
@@ -157,6 +164,10 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>13.0</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>SUFeedURL</key>
+  <string>https://l1zov.github.io/rewind/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>d0qDhMh7Acak94tDqDkPiyYj9U01VMshN1MZo7T6uD4=</string>
 </dict>
 </plist>
 EOF
@@ -165,7 +176,26 @@ if [[ -n "${ICON_FILE}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${ICON_FILE}" "${CONTENTS_DIR}/Info.plist"
 fi
 
-adhoc_sign "${APP_BUNDLE}" "app bundle"
+SPARKLE_FRAMEWORK_SRC="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [[ -d "${SPARKLE_FRAMEWORK_SRC}" ]]; then
+  ditto "${SPARKLE_FRAMEWORK_SRC}" "${FRAMEWORKS_DIR}/Sparkle.framework"
+  adhoc_sign "${FRAMEWORKS_DIR}/Sparkle.framework" "Sparkle framework"
+else
+  echo "Warning: Sparkle.framework not found in .build/artifacts" >&2
+fi
+
+cat > "${STAGING_ROOT}/Rewind.entitlements" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+EOF
+
+adhoc_sign "${APP_BUNDLE}" "app bundle" "${STAGING_ROOT}/Rewind.entitlements"
 
 echo "Creating drag-and-drop DMG..."
 remove_path "${DMG_PATH}" "disk image" || exit 1

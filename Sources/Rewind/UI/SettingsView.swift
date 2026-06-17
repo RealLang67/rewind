@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
   @ObservedObject var appState: AppState
+  @ObservedObject var updaterController: UpdaterController
   @State private var didApplyWindowSizing = false
 
   private var settingsLocked: Bool {
@@ -24,7 +25,7 @@ struct SettingsView: View {
       IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
         .tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
-      AboutSettingsPane()
+      AboutSettingsPane(updaterController: updaterController)
         .tabItem { Label("About", systemImage: "info.circle") }
     }
     .frame(minWidth: 440, minHeight: 440)
@@ -298,6 +299,8 @@ private struct IntegrationsSettingsPane: View {
 }
 
 private struct AboutSettingsPane: View {
+  @ObservedObject var updaterController: UpdaterController
+
   private var appVersion: String {
     let shortVersion = normalizedVersion(
       Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -333,6 +336,11 @@ private struct AboutSettingsPane: View {
         LabeledContent("Version") {
           Text(appVersion)
         }
+
+        Button("Check for Updates...") {
+          updaterController.checkForUpdates()
+        }
+        .disabled(!updaterController.updater.canCheckForUpdates)
       }
     }
     .formStyle(.grouped)

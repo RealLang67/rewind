@@ -4,9 +4,11 @@ import SwiftUI
 struct RewindApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
   @ObservedObject private var appState: AppState
+  @ObservedObject private var updaterController: UpdaterController
 
   init() {
     _appState = ObservedObject(initialValue: AppCompositionRoot.shared.appState)
+    _updaterController = ObservedObject(initialValue: AppCompositionRoot.shared.updaterController)
   }
 
   var body: some Scene {
@@ -15,7 +17,7 @@ struct RewindApp: App {
     }
 
     Settings {
-      SettingsView(appState: appState)
+      SettingsView(appState: appState, updaterController: updaterController)
     }
     .defaultSize(width: 520, height: 440)
   }

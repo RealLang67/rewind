@@ -49,6 +49,39 @@ jobs:
           ZIP_PATH="dist/Rewind-${{ steps.version_meta.outputs.release_tag }}.zip"
           ditto -c -k --sequesterRsrc --keepParent "dist/Rewind.app" "${ZIP_PATH}"
 
+      - name: Generate Appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "${SPARKLE_PRIVATE_KEY}" ]; then
+            echo "missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          
+          echo "${SPARKLE_PRIVATE_KEY}" > sparkle_priv.txt
+          .build/artifacts/sparkle/Sparkle/bin/generate_keys -f sparkle_priv.txt --account default
+          .build/artifacts/sparkle/Sparkle/bin/generate_appcast --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+
+      - name: Deploy Appcast to GitHub Pages
+        run: |
+          git clone --branch gh-pages "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" pages_repo || {
+            echo "gh-pages branch does not exist, creating it..."
+            git init pages_repo
+            cd pages_repo
+            git checkout -b gh-pages
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+            cd ..
+          }
+          
+          cp dist/appcast.xml pages_repo/
+          
+          cd pages_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "chore: update appcast.xml for ${{ steps.version_meta.outputs.release_tag }}" || exit 0
+          git push origin gh-pages
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -56,6 +89,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/appcast.xml
             dist/Rewind.app
           if-no-files-found: error
 
