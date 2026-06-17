@@ -91,7 +91,7 @@ remove_path() {
 adhoc_sign() {
   local target_path="$1"
   local label="$2"
-  local entitlements="$3"
+  local entitlements="${3:-}"
 
   if ! command -v codesign >/dev/null 2>&1; then
     echo "codesign is required to sign ${label}" >&2
