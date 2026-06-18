@@ -3,22 +3,38 @@ import Foundation
 import Sparkle
 
 @MainActor
-final class UpdaterController: ObservableObject {
-  let updaterController: SPUStandardUpdaterController
+final class UpdaterController: NSObject, ObservableObject, SPUUpdaterDelegate {
+  private var _updaterController: SPUStandardUpdaterController!
 
   var updater: SPUUpdater {
-    updaterController.updater
+    _updaterController.updater
   }
 
-  init() {
-    updaterController = SPUStandardUpdaterController(
+  override init() {
+    super.init()
+    _updaterController = SPUStandardUpdaterController(
       startingUpdater: true,
-      updaterDelegate: nil,
+      updaterDelegate: self,
       userDriverDelegate: nil
     )
   }
 
   func checkForUpdates() {
-    updaterController.checkForUpdates(nil)
+    _updaterController.checkForUpdates(nil)
+  }
+
+  nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+    if let bundleID = Bundle.main.bundleIdentifier {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+      process.arguments = ["reset", "All", bundleID]
+      do {
+        try process.run()
+        process.waitUntilExit()
+        print("Reset TCC permissions for \(bundleID).")
+      } catch {
+        print("Could not reset TCC permissions: \(error)")
+      }
+    }
   }
 }
