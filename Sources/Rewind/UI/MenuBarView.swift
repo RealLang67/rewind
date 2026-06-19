@@ -149,10 +149,18 @@ struct MenuBarView: View {
     NSWorkspace.shared.activateFileViewerSelecting([clip.url])
   }
 
+  @Environment(\.openWindow) private var openWindow
+
   @ViewBuilder
   private var settingsMenuItem: some View {
     if #available(macOS 14.0, *) {
       OpenSettingsMenuItem()
+    } else {
+      Button("Settings…") {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "settings-fallback")
+      }
+      .keyboardShortcut(",", modifiers: .command)
     }
   }
 }

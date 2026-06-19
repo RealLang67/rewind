@@ -20,5 +20,10 @@ struct RewindApp: App {
       SettingsView(appState: appState, updaterController: updaterController)
     }
     .defaultSize(width: 520, height: 440)
+
+    Window("Settings", id: "settings-fallback") {
+      SettingsView(appState: appState, updaterController: updaterController)
+    }
+    .defaultSize(width: 520, height: 440)
   }
 }

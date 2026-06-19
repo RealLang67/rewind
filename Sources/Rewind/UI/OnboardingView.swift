@@ -47,6 +47,8 @@ struct OnboardingView: View {
     .frame(width: 520, height: 340)
   }
 
+  @Environment(\.openWindow) private var openWindow
+
   @ViewBuilder
   private var openSettingsButton: some View {
     if #available(macOS 14.0, *) {
@@ -55,7 +57,11 @@ struct OnboardingView: View {
       }
       .buttonStyle(.bordered)
     } else {
-      Text("version too old")
+      Button("Open Settings") {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "settings-fallback")
+      }
+      .buttonStyle(.bordered)
     }
   }
 }
