@@ -301,6 +301,16 @@ private struct FeedbackSettingsPane: View {
         settingsLocked: settingsLocked,
         onPlay: { appState.playRecordingEndFeedback() }
       )
+
+      FeedbackSection(
+        title: "Error Feedback",
+        toggleLabel: "Enable error feedback",
+        enabled: $appState.errorFeedbackEnabled,
+        sound: $appState.errorFeedbackSound,
+        volume: $appState.errorFeedbackVolume,
+        settingsLocked: settingsLocked,
+        onPlay: { appState.playErrorFeedback() }
+      )
     }
     .formStyle(.grouped)
   }

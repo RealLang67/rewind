@@ -36,4 +36,5 @@ struct FeedbackSound: Hashable, Identifiable, Sendable {
   static let `default` = defaultSound
   static let defaultStart = defaultSound
   static let defaultEnd = defaultSound
+  static let defaultError = defaultSound
 }

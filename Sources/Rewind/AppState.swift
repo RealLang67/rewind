@@ -189,6 +189,43 @@ final class AppState: ObservableObject {
       persistSettings()
     }
   }
+
+  @Published var errorFeedbackEnabled = AppSettings.default.errorFeedbackEnabled {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard errorFeedbackEnabled != oldValue else { return }
+      persistSettings()
+    }
+  }
+
+  @Published var errorFeedbackVolume = AppSettings.default.errorFeedbackVolume {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard errorFeedbackVolume != oldValue else { return }
+      let clamped = min(
+        max(errorFeedbackVolume, AppSettings.saveFeedbackVolumeRange.lowerBound),
+        AppSettings.saveFeedbackVolumeRange.upperBound
+      )
+      if clamped != errorFeedbackVolume {
+        errorFeedbackVolume = clamped
+        return
+      }
+      persistSettings()
+      playErrorFeedback()
+    }
+  }
+
+  @Published var errorFeedbackSound: FeedbackSound = .defaultError {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard errorFeedbackSound != oldValue else { return }
+      errorSound = nil
+      errorBoostSound = nil
+      persistSettings()
+      playErrorFeedback()
+    }
+  }
+
   @Published var discordRPCEnabled = AppSettings.default.discordRPCEnabled {
     didSet {
       guard !isRestoringSettings else { return }
@@ -226,6 +263,8 @@ final class AppState: ObservableObject {
   private var recordingStartBoostSound: NSSound?
   private var recordingEndSound: NSSound?
   private var recordingEndBoostSound: NSSound?
+  private var errorSound: NSSound?
+  private var errorBoostSound: NSSound?
   private var discordActivityState: DiscordActivityState = .idle
   private var discordPresenceRetryTask: Task<Void, Never>?
   private var preferredResolutionID: String?
@@ -264,6 +303,9 @@ final class AppState: ObservableObject {
     recordingEndFeedbackEnabled = settings.recordingEndFeedbackEnabled
     recordingEndFeedbackVolume = settings.recordingEndFeedbackVolume
     recordingEndFeedbackSound = settings.recordingEndFeedbackSound
+    errorFeedbackEnabled = settings.errorFeedbackEnabled
+    errorFeedbackVolume = settings.errorFeedbackVolume
+    errorFeedbackSound = settings.errorFeedbackSound
     discordRPCEnabled = settings.discordRPCEnabled
     useBFrames = settings.useBFrames
     isRestoringSettings = false
@@ -378,6 +420,7 @@ final class AppState: ObservableObject {
     } catch {
       isCapturing = false
       updateDiscordActivity(.idle)
+      playErrorFeedback()
     }
   }
 
@@ -397,6 +440,7 @@ final class AppState: ObservableObject {
       playReplaySavedFeedback()
     } catch {
       print("Save replay failed:", error)
+      playErrorFeedback()
     }
   }
 
@@ -525,6 +569,20 @@ final class AppState: ObservableObject {
     }
   }
 
+  func playErrorFeedback() {
+    playFeedback(
+      enabled: errorFeedbackEnabled,
+      volume: errorFeedbackVolume,
+      sound: errorFeedbackSound,
+      defaultSoundName: "error",
+      cachedSound: errorSound,
+      cachedBoostSound: errorBoostSound
+    ) { [weak self] primary, boost in
+      self?.errorSound = primary
+      self?.errorBoostSound = boost
+    }
+  }
+
   private func resolvedClipDuration(for url: URL) async throws -> TimeInterval {
     let asset = AVURLAsset(url: url)
     do {
@@ -547,6 +605,7 @@ final class AppState: ObservableObject {
   private func handleCaptureInterrupted(_ error: Error) {
     isCapturing = false
     updateDiscordActivity(.idle)
+    playErrorFeedback()
     AppLog.error(.app, "Capture interrupted:", error)
     guard alwaysRecordEnabled, !isTerminatingForCaptureIssue else { return }
     isTerminatingForCaptureIssue = true
@@ -581,6 +640,9 @@ final class AppState: ObservableObject {
         recordingEndFeedbackEnabled: recordingEndFeedbackEnabled,
         recordingEndFeedbackVolume: recordingEndFeedbackVolume,
         recordingEndFeedbackSoundID: recordingEndFeedbackSound.id,
+        errorFeedbackEnabled: errorFeedbackEnabled,
+        errorFeedbackVolume: errorFeedbackVolume,
+        errorFeedbackSoundID: errorFeedbackSound.id,
         discordRPCEnabled: discordRPCEnabled,
         useBFrames: useBFrames
       )
