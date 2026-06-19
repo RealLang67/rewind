@@ -200,25 +200,61 @@ private struct HotkeysSettingsPane: View {
   }
 }
 
-private struct FeedbackSettingsPane: View {
-  @ObservedObject var appState: AppState
+private struct FeedbackSection: View {
+  let title: String
+  let toggleLabel: String
+  @Binding var enabled: Bool
+  @Binding var sound: FeedbackSound
+  @Binding var volume: Double
   let settingsLocked: Bool
 
   private var feedbackVolumeRange: ClosedRange<Int> {
     Int(AppSettings.saveFeedbackVolumeRange.lowerBound)...Int(AppSettings.saveFeedbackVolumeRange.upperBound)
   }
 
-  private var feedbackVolumeInputBinding: Binding<Int> {
+  private var volumeBinding: Binding<Int> {
     Binding(
-      get: {
-        Int(appState.saveFeedbackVolume.rounded())
-      },
+      get: { Int(volume.rounded()) },
       set: { newValue in
-        let clampedValue = min(max(newValue, feedbackVolumeRange.lowerBound), feedbackVolumeRange.upperBound)
-        appState.saveFeedbackVolume = Double(clampedValue)
+        let clamped = min(max(newValue, feedbackVolumeRange.lowerBound), feedbackVolumeRange.upperBound)
+        volume = Double(clamped)
       }
     )
   }
+
+  var body: some View {
+    Section(title) {
+      Toggle(toggleLabel, isOn: $enabled)
+
+      Picker("Feedback sound", selection: $sound) {
+        ForEach(FeedbackSound.options) { soundOption in
+          Text(soundOption.label).tag(soundOption)
+        }
+      }
+      .pickerStyle(.menu)
+      .disabled(!enabled)
+
+      LabeledContent("Feedback volume") {
+        HStack(spacing: 6) {
+          TextField("", value: volumeBinding, format: .number.grouping(.never))
+            .textFieldStyle(.roundedBorder)
+            .multilineTextAlignment(.trailing)
+            .frame(width: 64)
+            .help("Range: \(feedbackVolumeRange.lowerBound)-\(feedbackVolumeRange.upperBound)")
+            .disabled(!enabled)
+
+          Text("%")
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .disabled(settingsLocked)
+  }
+}
+
+private struct FeedbackSettingsPane: View {
+  @ObservedObject var appState: AppState
+  let settingsLocked: Bool
 
   var body: some View {
     Form {
@@ -226,32 +262,32 @@ private struct FeedbackSettingsPane: View {
         PermissionNoticeRow()
       }
 
-      Section("Save Feedback") {
-        Toggle("Enable save feedback", isOn: $appState.saveFeedbackEnabled)
+      FeedbackSection(
+        title: "Save Feedback",
+        toggleLabel: "Enable save feedback",
+        enabled: $appState.saveFeedbackEnabled,
+        sound: $appState.saveFeedbackSound,
+        volume: $appState.saveFeedbackVolume,
+        settingsLocked: settingsLocked
+      )
 
-        Picker("Feedback sound", selection: $appState.saveFeedbackSound) {
-          ForEach(SaveFeedbackSound.options) { sound in
-            Text(sound.label).tag(sound)
-          }
-        }
-        .pickerStyle(.menu)
-        .disabled(!appState.saveFeedbackEnabled)
+      FeedbackSection(
+        title: "Recording Start Feedback",
+        toggleLabel: "Enable start feedback",
+        enabled: $appState.recordingStartFeedbackEnabled,
+        sound: $appState.recordingStartFeedbackSound,
+        volume: $appState.recordingStartFeedbackVolume,
+        settingsLocked: settingsLocked
+      )
 
-        LabeledContent("Feedback volume") {
-          HStack(spacing: 6) {
-            TextField("", value: feedbackVolumeInputBinding, format: .number.grouping(.never))
-              .textFieldStyle(.roundedBorder)
-              .multilineTextAlignment(.trailing)
-              .frame(width: 64)
-              .help("Range: \(feedbackVolumeRange.lowerBound)-\(feedbackVolumeRange.upperBound)")
-            .disabled(!appState.saveFeedbackEnabled)
-
-            Text("%")
-              .foregroundStyle(.secondary)
-          }
-        }
-      }
-      .disabled(settingsLocked)
+      FeedbackSection(
+        title: "Recording End Feedback",
+        toggleLabel: "Enable end feedback",
+        enabled: $appState.recordingEndFeedbackEnabled,
+        sound: $appState.recordingEndFeedbackSound,
+        volume: $appState.recordingEndFeedbackVolume,
+        settingsLocked: settingsLocked
+      )
     }
     .formStyle(.grouped)
   }

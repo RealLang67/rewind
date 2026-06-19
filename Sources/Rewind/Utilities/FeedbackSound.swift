@@ -1,28 +1,39 @@
 import Foundation
 
-struct SaveFeedbackSound: Hashable, Identifiable, Sendable {
+struct FeedbackSound: Hashable, Identifiable, Sendable {
   let id: String
   let label: String
   let systemSoundName: String
 
-  static let cling = SaveFeedbackSound(
+  static let defaultSound = FeedbackSound(
+    id: "default",
+    label: "Default",
+    systemSoundName: "default"
+  )
+
+  static let cling = FeedbackSound(
     id: "cling",
     label: "Cling",
     systemSoundName: "Glass"
   )
 
-  static let ping = SaveFeedbackSound(
+  static let ping = FeedbackSound(
     id: "ping",
     label: "Ping",
     systemSoundName: "Ping"
   )
 
-  static let pop = SaveFeedbackSound(
+  static let pop = FeedbackSound(
     id: "pop",
     label: "Pop",
     systemSoundName: "Pop"
   )
 
-  static let options: [SaveFeedbackSound] = [.cling, .ping, .pop]
-  static let `default` = cling
+  static let options: [FeedbackSound] = [
+    .defaultSound,
+    .cling, .ping, .pop
+  ]
+  static let `default` = defaultSound
+  static let defaultStart = defaultSound
+  static let defaultEnd = defaultSound
 }

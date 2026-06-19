@@ -112,12 +112,80 @@ final class AppState: ObservableObject {
       persistSettings()
     }
   }
-  @Published var saveFeedbackSound: SaveFeedbackSound = .default {
+  @Published var saveFeedbackSound: FeedbackSound = .default {
     didSet {
       guard !isRestoringSettings else { return }
       guard saveFeedbackSound != oldValue else { return }
       replaySavedSound = nil
       replaySavedBoostSound = nil
+      persistSettings()
+    }
+  }
+
+  @Published var recordingStartFeedbackEnabled = AppSettings.default.recordingStartFeedbackEnabled {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingStartFeedbackEnabled != oldValue else { return }
+      persistSettings()
+    }
+  }
+
+  @Published var recordingStartFeedbackVolume = AppSettings.default.recordingStartFeedbackVolume {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingStartFeedbackVolume != oldValue else { return }
+      let clamped = min(
+        max(recordingStartFeedbackVolume, AppSettings.saveFeedbackVolumeRange.lowerBound),
+        AppSettings.saveFeedbackVolumeRange.upperBound
+      )
+      if clamped != recordingStartFeedbackVolume {
+        recordingStartFeedbackVolume = clamped
+        return
+      }
+      persistSettings()
+    }
+  }
+
+  @Published var recordingStartFeedbackSound: FeedbackSound = .defaultStart {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingStartFeedbackSound != oldValue else { return }
+      recordingStartSound = nil
+      recordingStartBoostSound = nil
+      persistSettings()
+    }
+  }
+
+  @Published var recordingEndFeedbackEnabled = AppSettings.default.recordingEndFeedbackEnabled {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingEndFeedbackEnabled != oldValue else { return }
+      persistSettings()
+    }
+  }
+
+  @Published var recordingEndFeedbackVolume = AppSettings.default.recordingEndFeedbackVolume {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingEndFeedbackVolume != oldValue else { return }
+      let clamped = min(
+        max(recordingEndFeedbackVolume, AppSettings.saveFeedbackVolumeRange.lowerBound),
+        AppSettings.saveFeedbackVolumeRange.upperBound
+      )
+      if clamped != recordingEndFeedbackVolume {
+        recordingEndFeedbackVolume = clamped
+        return
+      }
+      persistSettings()
+    }
+  }
+
+  @Published var recordingEndFeedbackSound: FeedbackSound = .defaultEnd {
+    didSet {
+      guard !isRestoringSettings else { return }
+      guard recordingEndFeedbackSound != oldValue else { return }
+      recordingEndSound = nil
+      recordingEndBoostSound = nil
       persistSettings()
     }
   }
@@ -154,12 +222,16 @@ final class AppState: ObservableObject {
   private let hotkeyManager: GlobalHotkeyManager
   private var replaySavedSound: NSSound?
   private var replaySavedBoostSound: NSSound?
+  private var recordingStartSound: NSSound?
+  private var recordingStartBoostSound: NSSound?
+  private var recordingEndSound: NSSound?
+  private var recordingEndBoostSound: NSSound?
   private var discordActivityState: DiscordActivityState = .idle
   private var discordPresenceRetryTask: Task<Void, Never>?
   private var preferredResolutionID: String?
   private var isRestoringSettings = false
   private var isTerminatingForCaptureIssue = false
-
+ 
   init(
     captureManager: CaptureManager = CaptureManager(),
     clipLibrary: ClipLibrary = ClipLibrary(),
@@ -170,7 +242,7 @@ final class AppState: ObservableObject {
     self.clipLibrary = clipLibrary
     self.discordRPCClient = discordRPCClient
     self.hotkeyManager = hotkeyManager
-
+ 
     permissionState = PermissionManager.currentState()
     let settings = AppSettingsStorage.load()
     isRestoringSettings = true
@@ -186,6 +258,12 @@ final class AppState: ObservableObject {
     saveFeedbackEnabled = settings.saveFeedbackEnabled
     saveFeedbackVolume = settings.saveFeedbackVolume
     saveFeedbackSound = settings.saveFeedbackSound
+    recordingStartFeedbackEnabled = settings.recordingStartFeedbackEnabled
+    recordingStartFeedbackVolume = settings.recordingStartFeedbackVolume
+    recordingStartFeedbackSound = settings.recordingStartFeedbackSound
+    recordingEndFeedbackEnabled = settings.recordingEndFeedbackEnabled
+    recordingEndFeedbackVolume = settings.recordingEndFeedbackVolume
+    recordingEndFeedbackSound = settings.recordingEndFeedbackSound
     discordRPCEnabled = settings.discordRPCEnabled
     useBFrames = settings.useBFrames
     isRestoringSettings = false
@@ -296,6 +374,7 @@ final class AppState: ObservableObject {
       )
       isCapturing = true
       updateDiscordActivity(.recording)
+      playRecordingStartFeedback()
     } catch {
       isCapturing = false
       updateDiscordActivity(.idle)
@@ -306,6 +385,7 @@ final class AppState: ObservableObject {
     await captureManager.stop()
     isCapturing = false
     updateDiscordActivity(.idle)
+    playRecordingEndFeedback()
   }
 
   private func saveReplayAsync() async {
@@ -342,39 +422,107 @@ final class AppState: ObservableObject {
     }
   }
 
-  private func playReplaySavedFeedback() {
-    guard saveFeedbackEnabled else { return }
-    guard let replaySavedSound = replaySavedSoundForCurrentSelection() else { return }
+  private func playFeedback(
+    enabled: Bool,
+    volume: Double,
+    sound: FeedbackSound,
+    defaultSoundName: String,
+    cachedSound: NSSound?,
+    cachedBoostSound: NSSound?,
+    updateCache: (NSSound?, NSSound?) -> Void
+  ) {
+    guard enabled else { return }
 
-    let normalizedVolume = saveFeedbackVolume / 100
+    let soundName = sound.id == "default" ? defaultSoundName : sound.systemSoundName
+
+    let primary: NSSound
+    if let cached = cachedSound {
+      primary = cached
+    } else {
+      if let newSound = NSSound(named: NSSound.Name(soundName)) {
+        primary = newSound
+      } else {
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let rootURL = sourceFileURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let devURL = rootURL.appendingPathComponent("Resources/Sounds/\(soundName).wav")
+        if let newSound = NSSound(contentsOf: devURL, byReference: true) {
+          primary = newSound
+        } else {
+          let rootDevURL = rootURL.appendingPathComponent("Resources/\(soundName).wav")
+          if let newSound = NSSound(contentsOf: rootDevURL, byReference: true) {
+            primary = newSound
+          } else {
+            return
+          }
+        }
+      }
+    }
+
+    let boost: NSSound?
+    if let cachedBoost = cachedBoostSound {
+      boost = cachedBoost
+    } else {
+      boost = primary.copy() as? NSSound
+    }
+
+    updateCache(primary, boost)
+
+    let normalizedVolume = volume / 100
     let primaryVolume = Float(min(1, normalizedVolume * 1.25))
     let boostMix = max(0, normalizedVolume - 0.55) / 0.45
     let boostVolume = Float(min(1, boostMix * 0.9))
 
-    replaySavedSound.stop()
-    replaySavedSound.volume = primaryVolume
-    replaySavedSound.play()
+    primary.stop()
+    primary.volume = primaryVolume
+    primary.play()
 
-    if boostVolume > 0,
-       let replaySavedBoostSound = replaySavedBoostSoundForCurrentSelection() {
-      replaySavedBoostSound.stop()
-      replaySavedBoostSound.volume = boostVolume
-      replaySavedBoostSound.play()
+    if boostVolume > 0, let boost = boost {
+      boost.stop()
+      boost.volume = boostVolume
+      boost.play()
     }
   }
 
-  private func replaySavedSoundForCurrentSelection() -> NSSound? {
-    if replaySavedSound == nil {
-      replaySavedSound = NSSound(named: NSSound.Name(saveFeedbackSound.systemSoundName))
+  private func playReplaySavedFeedback() {
+    playFeedback(
+      enabled: saveFeedbackEnabled,
+      volume: saveFeedbackVolume,
+      sound: saveFeedbackSound,
+      defaultSoundName: "save",
+      cachedSound: replaySavedSound,
+      cachedBoostSound: replaySavedBoostSound
+    ) { [weak self] primary, boost in
+      self?.replaySavedSound = primary
+      self?.replaySavedBoostSound = boost
     }
-    return replaySavedSound
   }
 
-  private func replaySavedBoostSoundForCurrentSelection() -> NSSound? {
-    if replaySavedBoostSound == nil {
-      replaySavedBoostSound = NSSound(named: NSSound.Name(saveFeedbackSound.systemSoundName))
+  private func playRecordingStartFeedback() {
+    playFeedback(
+      enabled: recordingStartFeedbackEnabled,
+      volume: recordingStartFeedbackVolume,
+      sound: recordingStartFeedbackSound,
+      defaultSoundName: "start",
+      cachedSound: recordingStartSound,
+      cachedBoostSound: recordingStartBoostSound
+    ) { [weak self] primary, boost in
+      self?.recordingStartSound = primary
+      self?.recordingStartBoostSound = boost
     }
-    return replaySavedBoostSound
+  }
+
+  private func playRecordingEndFeedback() {
+    playFeedback(
+      enabled: recordingEndFeedbackEnabled,
+      volume: recordingEndFeedbackVolume,
+      sound: recordingEndFeedbackSound,
+      defaultSoundName: "end",
+      cachedSound: recordingEndSound,
+      cachedBoostSound: recordingEndBoostSound
+    ) { [weak self] primary, boost in
+      self?.recordingEndSound = primary
+      self?.recordingEndBoostSound = boost
+    }
   }
 
   private func resolvedClipDuration(for url: URL) async throws -> TimeInterval {
@@ -427,6 +575,12 @@ final class AppState: ObservableObject {
         saveFeedbackEnabled: saveFeedbackEnabled,
         saveFeedbackVolume: saveFeedbackVolume,
         saveFeedbackSoundID: saveFeedbackSound.id,
+        recordingStartFeedbackEnabled: recordingStartFeedbackEnabled,
+        recordingStartFeedbackVolume: recordingStartFeedbackVolume,
+        recordingStartFeedbackSoundID: recordingStartFeedbackSound.id,
+        recordingEndFeedbackEnabled: recordingEndFeedbackEnabled,
+        recordingEndFeedbackVolume: recordingEndFeedbackVolume,
+        recordingEndFeedbackSoundID: recordingEndFeedbackSound.id,
         discordRPCEnabled: discordRPCEnabled,
         useBFrames: useBFrames
       )

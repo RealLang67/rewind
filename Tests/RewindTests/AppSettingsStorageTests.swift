@@ -29,6 +29,12 @@ final class AppSettingsStorageTests: XCTestCase {
     XCTAssertEqual(settings.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
     XCTAssertEqual(settings.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
     XCTAssertEqual(settings.saveFeedbackSoundID, AppSettings.default.saveFeedbackSoundID)
+    XCTAssertEqual(settings.recordingStartFeedbackEnabled, AppSettings.default.recordingStartFeedbackEnabled)
+    XCTAssertEqual(settings.recordingStartFeedbackVolume, AppSettings.default.recordingStartFeedbackVolume)
+    XCTAssertEqual(settings.recordingStartFeedbackSoundID, AppSettings.default.recordingStartFeedbackSoundID)
+    XCTAssertEqual(settings.recordingEndFeedbackEnabled, AppSettings.default.recordingEndFeedbackEnabled)
+    XCTAssertEqual(settings.recordingEndFeedbackVolume, AppSettings.default.recordingEndFeedbackVolume)
+    XCTAssertEqual(settings.recordingEndFeedbackSoundID, AppSettings.default.recordingEndFeedbackSoundID)
     XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
     XCTAssertEqual(settings.useBFrames, AppSettings.default.useBFrames)
   }
@@ -46,7 +52,13 @@ final class AppSettingsStorageTests: XCTestCase {
       alwaysRecordEnabled: true,
       saveFeedbackEnabled: false,
       saveFeedbackVolume: 15,
-      saveFeedbackSoundID: SaveFeedbackSound.pop.id,
+      saveFeedbackSoundID: FeedbackSound.pop.id,
+      recordingStartFeedbackEnabled: false,
+      recordingStartFeedbackVolume: 25,
+      recordingStartFeedbackSoundID: FeedbackSound.ping.id,
+      recordingEndFeedbackEnabled: true,
+      recordingEndFeedbackVolume: 35,
+      recordingEndFeedbackSoundID: FeedbackSound.cling.id,
       discordRPCEnabled: false,
       useBFrames: false
     )
@@ -66,6 +78,12 @@ final class AppSettingsStorageTests: XCTestCase {
     XCTAssertEqual(loaded.saveFeedbackEnabled, expected.saveFeedbackEnabled)
     XCTAssertEqual(loaded.saveFeedbackVolume, expected.saveFeedbackVolume)
     XCTAssertEqual(loaded.saveFeedbackSoundID, expected.saveFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingStartFeedbackEnabled, expected.recordingStartFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingStartFeedbackVolume, expected.recordingStartFeedbackVolume)
+    XCTAssertEqual(loaded.recordingStartFeedbackSoundID, expected.recordingStartFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingEndFeedbackEnabled, expected.recordingEndFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingEndFeedbackVolume, expected.recordingEndFeedbackVolume)
+    XCTAssertEqual(loaded.recordingEndFeedbackSoundID, expected.recordingEndFeedbackSoundID)
     XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
     XCTAssertEqual(loaded.useBFrames, expected.useBFrames)
   }
@@ -84,6 +102,12 @@ final class AppSettingsStorageTests: XCTestCase {
       saveFeedbackEnabled: true,
       saveFeedbackVolume: 300,
       saveFeedbackSoundID: "1234556789blahhhh",
+      recordingStartFeedbackEnabled: true,
+      recordingStartFeedbackVolume: 300,
+      recordingStartFeedbackSoundID: "1234556789blahhhh",
+      recordingEndFeedbackEnabled: true,
+      recordingEndFeedbackVolume: 300,
+      recordingEndFeedbackSoundID: "1234556789blahhhh",
       discordRPCEnabled: false,
       useBFrames: false
     )
@@ -105,6 +129,12 @@ final class AppSettingsStorageTests: XCTestCase {
     XCTAssertEqual(loaded.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
     XCTAssertEqual(loaded.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
     XCTAssertEqual(loaded.saveFeedbackSoundID, AppSettings.default.saveFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingStartFeedbackEnabled, AppSettings.default.recordingStartFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingStartFeedbackVolume, AppSettings.default.recordingStartFeedbackVolume)
+    XCTAssertEqual(loaded.recordingStartFeedbackSoundID, AppSettings.default.recordingStartFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingEndFeedbackEnabled, AppSettings.default.recordingEndFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingEndFeedbackVolume, AppSettings.default.recordingEndFeedbackVolume)
+    XCTAssertEqual(loaded.recordingEndFeedbackSoundID, AppSettings.default.recordingEndFeedbackSoundID)
     XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
     XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
   }
@@ -126,6 +156,12 @@ final class AppSettingsStorageTests: XCTestCase {
     XCTAssertEqual(loaded.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
     XCTAssertEqual(loaded.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
     XCTAssertEqual(loaded.saveFeedbackSoundID, AppSettings.default.saveFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingStartFeedbackEnabled, AppSettings.default.recordingStartFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingStartFeedbackVolume, AppSettings.default.recordingStartFeedbackVolume)
+    XCTAssertEqual(loaded.recordingStartFeedbackSoundID, AppSettings.default.recordingStartFeedbackSoundID)
+    XCTAssertEqual(loaded.recordingEndFeedbackEnabled, AppSettings.default.recordingEndFeedbackEnabled)
+    XCTAssertEqual(loaded.recordingEndFeedbackVolume, AppSettings.default.recordingEndFeedbackVolume)
+    XCTAssertEqual(loaded.recordingEndFeedbackSoundID, AppSettings.default.recordingEndFeedbackSoundID)
     XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
     XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
   }
@@ -144,6 +180,12 @@ final class AppSettingsStorageTests: XCTestCase {
       saveFeedbackEnabled: AppSettings.default.saveFeedbackEnabled,
       saveFeedbackVolume: AppSettings.default.saveFeedbackVolume,
       saveFeedbackSoundID: AppSettings.default.saveFeedbackSoundID,
+      recordingStartFeedbackEnabled: AppSettings.default.recordingStartFeedbackEnabled,
+      recordingStartFeedbackVolume: AppSettings.default.recordingStartFeedbackVolume,
+      recordingStartFeedbackSoundID: AppSettings.default.recordingStartFeedbackSoundID,
+      recordingEndFeedbackEnabled: AppSettings.default.recordingEndFeedbackEnabled,
+      recordingEndFeedbackVolume: AppSettings.default.recordingEndFeedbackVolume,
+      recordingEndFeedbackSoundID: AppSettings.default.recordingEndFeedbackSoundID,
       discordRPCEnabled: AppSettings.default.discordRPCEnabled,
       useBFrames: AppSettings.default.useBFrames
     )

@@ -19,6 +19,12 @@ struct AppSettings: Codable, Sendable {
   var saveFeedbackEnabled: Bool
   var saveFeedbackVolume: Double
   var saveFeedbackSoundID: String
+  var recordingStartFeedbackEnabled: Bool
+  var recordingStartFeedbackVolume: Double
+  var recordingStartFeedbackSoundID: String
+  var recordingEndFeedbackEnabled: Bool
+  var recordingEndFeedbackVolume: Double
+  var recordingEndFeedbackSoundID: String
   var discordRPCEnabled: Bool
   var useBFrames: Bool
 
@@ -34,7 +40,13 @@ struct AppSettings: Codable, Sendable {
     alwaysRecordEnabled: false,
     saveFeedbackEnabled: true,
     saveFeedbackVolume: 20,
-    saveFeedbackSoundID: SaveFeedbackSound.default.id,
+    saveFeedbackSoundID: FeedbackSound.default.id,
+    recordingStartFeedbackEnabled: true,
+    recordingStartFeedbackVolume: 20,
+    recordingStartFeedbackSoundID: FeedbackSound.defaultStart.id,
+    recordingEndFeedbackEnabled: true,
+    recordingEndFeedbackVolume: 20,
+    recordingEndFeedbackSoundID: FeedbackSound.defaultEnd.id,
     discordRPCEnabled: true,
     useBFrames: false
   )
@@ -52,6 +64,12 @@ struct AppSettings: Codable, Sendable {
     case saveFeedbackEnabled
     case saveFeedbackVolume
     case saveFeedbackSoundID
+    case recordingStartFeedbackEnabled
+    case recordingStartFeedbackVolume
+    case recordingStartFeedbackSoundID
+    case recordingEndFeedbackEnabled
+    case recordingEndFeedbackVolume
+    case recordingEndFeedbackSoundID
     case discordRPCEnabled
     case useBFrames
   }
@@ -69,6 +87,12 @@ struct AppSettings: Codable, Sendable {
     saveFeedbackEnabled: Bool,
     saveFeedbackVolume: Double,
     saveFeedbackSoundID: String,
+    recordingStartFeedbackEnabled: Bool,
+    recordingStartFeedbackVolume: Double,
+    recordingStartFeedbackSoundID: String,
+    recordingEndFeedbackEnabled: Bool,
+    recordingEndFeedbackVolume: Double,
+    recordingEndFeedbackSoundID: String,
     discordRPCEnabled: Bool,
     useBFrames: Bool
   ) {
@@ -84,6 +108,12 @@ struct AppSettings: Codable, Sendable {
     self.saveFeedbackEnabled = saveFeedbackEnabled
     self.saveFeedbackVolume = saveFeedbackVolume
     self.saveFeedbackSoundID = saveFeedbackSoundID
+    self.recordingStartFeedbackEnabled = recordingStartFeedbackEnabled
+    self.recordingStartFeedbackVolume = recordingStartFeedbackVolume
+    self.recordingStartFeedbackSoundID = recordingStartFeedbackSoundID
+    self.recordingEndFeedbackEnabled = recordingEndFeedbackEnabled
+    self.recordingEndFeedbackVolume = recordingEndFeedbackVolume
+    self.recordingEndFeedbackSoundID = recordingEndFeedbackSoundID
     self.discordRPCEnabled = discordRPCEnabled
     self.useBFrames = useBFrames
   }
@@ -104,7 +134,17 @@ struct AppSettings: Codable, Sendable {
     saveFeedbackVolume = try container.decodeIfPresent(Double.self, forKey: .saveFeedbackVolume)
       ?? AppSettings.default.saveFeedbackVolume
     saveFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .saveFeedbackSoundID)
-      ?? SaveFeedbackSound.default.id
+      ?? FeedbackSound.default.id
+    recordingStartFeedbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordingStartFeedbackEnabled) ?? true
+    recordingStartFeedbackVolume = try container.decodeIfPresent(Double.self, forKey: .recordingStartFeedbackVolume)
+      ?? AppSettings.default.recordingStartFeedbackVolume
+    recordingStartFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .recordingStartFeedbackSoundID)
+      ?? FeedbackSound.defaultStart.id
+    recordingEndFeedbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordingEndFeedbackEnabled) ?? true
+    recordingEndFeedbackVolume = try container.decodeIfPresent(Double.self, forKey: .recordingEndFeedbackVolume)
+      ?? AppSettings.default.recordingEndFeedbackVolume
+    recordingEndFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .recordingEndFeedbackSoundID)
+      ?? FeedbackSound.defaultEnd.id
     discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
     useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? false
   }
@@ -125,8 +165,16 @@ struct AppSettings: Codable, Sendable {
     CaptureAudioCodec.options.first(where: { $0.id == audioCodecID }) ?? .default
   }
 
-  var saveFeedbackSound: SaveFeedbackSound {
-    SaveFeedbackSound.options.first(where: { $0.id == saveFeedbackSoundID }) ?? .default
+  var saveFeedbackSound: FeedbackSound {
+    FeedbackSound.options.first(where: { $0.id == saveFeedbackSoundID }) ?? .default
+  }
+
+  var recordingStartFeedbackSound: FeedbackSound {
+    FeedbackSound.options.first(where: { $0.id == recordingStartFeedbackSoundID }) ?? .defaultStart
+  }
+
+  var recordingEndFeedbackSound: FeedbackSound {
+    FeedbackSound.options.first(where: { $0.id == recordingEndFeedbackSoundID }) ?? .defaultEnd
   }
 }
 
@@ -178,7 +226,19 @@ enum AppSettingsStorage {
     guard AppSettings.saveFeedbackVolumeRange.contains(settings.saveFeedbackVolume) else {
       return false
     }
-    guard SaveFeedbackSound.options.contains(where: { $0.id == settings.saveFeedbackSoundID }) else {
+    guard FeedbackSound.options.contains(where: { $0.id == settings.saveFeedbackSoundID }) else {
+      return false
+    }
+    guard AppSettings.saveFeedbackVolumeRange.contains(settings.recordingStartFeedbackVolume) else {
+      return false
+    }
+    guard FeedbackSound.options.contains(where: { $0.id == settings.recordingStartFeedbackSoundID }) else {
+      return false
+    }
+    guard AppSettings.saveFeedbackVolumeRange.contains(settings.recordingEndFeedbackVolume) else {
+      return false
+    }
+    guard FeedbackSound.options.contains(where: { $0.id == settings.recordingEndFeedbackSoundID }) else {
       return false
     }
     return true
