@@ -5,7 +5,6 @@ import Combine
 final class AppLifecycleController: NSObject {
   private let appState: AppState
   private let hotkeyManager: GlobalHotkeyManager
-  private let updateChecker: HomebrewUpdateChecker
   private var windowCoordinator: WindowCoordinator?
 
   private var appActiveObserver: NSObjectProtocol?
@@ -16,12 +15,10 @@ final class AppLifecycleController: NSObject {
 
   init(
     appState: AppState,
-    hotkeyManager: GlobalHotkeyManager,
-    updateChecker: HomebrewUpdateChecker
+    hotkeyManager: GlobalHotkeyManager
   ) {
     self.appState = appState
     self.hotkeyManager = hotkeyManager
-    self.updateChecker = updateChecker
     super.init()
   }
 
@@ -34,7 +31,6 @@ final class AppLifecycleController: NSObject {
     configureHotkeys()
     observeApplicationState()
     observeWindowState()
-    updateChecker.checkForUpdatesAtLaunch()
 
     windowCoordinator?.showOnboardingIfNeeded()
     appState.startAlwaysRecording()
