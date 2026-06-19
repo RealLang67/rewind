@@ -483,7 +483,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  private func playReplaySavedFeedback() {
+  func playReplaySavedFeedback() {
     playFeedback(
       enabled: saveFeedbackEnabled,
       volume: saveFeedbackVolume,
@@ -497,7 +497,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  private func playRecordingStartFeedback() {
+  func playRecordingStartFeedback() {
     playFeedback(
       enabled: recordingStartFeedbackEnabled,
       volume: recordingStartFeedbackVolume,
@@ -511,7 +511,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  private func playRecordingEndFeedback() {
+  func playRecordingEndFeedback() {
     playFeedback(
       enabled: recordingEndFeedbackEnabled,
       volume: recordingEndFeedbackVolume,

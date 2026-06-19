@@ -207,6 +207,7 @@ private struct FeedbackSection: View {
   @Binding var sound: FeedbackSound
   @Binding var volume: Double
   let settingsLocked: Bool
+  let onPlay: () -> Void
 
   private var feedbackVolumeRange: ClosedRange<Int> {
     Int(AppSettings.saveFeedbackVolumeRange.lowerBound)...Int(AppSettings.saveFeedbackVolumeRange.upperBound)
@@ -245,6 +246,15 @@ private struct FeedbackSection: View {
 
           Text("%")
             .foregroundStyle(.secondary)
+
+          Button {
+            onPlay()
+          } label: {
+            Image(systemName: "play.circle")
+          }
+          .buttonStyle(.plain)
+          .padding(.leading, 4)
+          .disabled(!enabled)
         }
       }
     }
@@ -268,7 +278,8 @@ private struct FeedbackSettingsPane: View {
         enabled: $appState.saveFeedbackEnabled,
         sound: $appState.saveFeedbackSound,
         volume: $appState.saveFeedbackVolume,
-        settingsLocked: settingsLocked
+        settingsLocked: settingsLocked,
+        onPlay: { appState.playReplaySavedFeedback() }
       )
 
       FeedbackSection(
@@ -277,7 +288,8 @@ private struct FeedbackSettingsPane: View {
         enabled: $appState.recordingStartFeedbackEnabled,
         sound: $appState.recordingStartFeedbackSound,
         volume: $appState.recordingStartFeedbackVolume,
-        settingsLocked: settingsLocked
+        settingsLocked: settingsLocked,
+        onPlay: { appState.playRecordingStartFeedback() }
       )
 
       FeedbackSection(
@@ -286,7 +298,8 @@ private struct FeedbackSettingsPane: View {
         enabled: $appState.recordingEndFeedbackEnabled,
         sound: $appState.recordingEndFeedbackSound,
         volume: $appState.recordingEndFeedbackVolume,
-        settingsLocked: settingsLocked
+        settingsLocked: settingsLocked,
+        onPlay: { appState.playRecordingEndFeedback() }
       )
     }
     .formStyle(.grouped)
