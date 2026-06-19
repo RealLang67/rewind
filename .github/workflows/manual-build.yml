@@ -107,3 +107,31 @@ jobs:
           overwrite_files: true
           fail_on_unmatched_files: true
 
+      - name: Post Changelog to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK}" ]; then
+            echo "missing DISCORD_WEBHOOK secret"
+            exit 0
+          fi
+          
+          # Fetch the generated release notes using the GitHub CLI
+          RELEASE_BODY=$(gh release view "${{ steps.version_meta.outputs.release_tag }}" --json body -q .body)
+          
+          # Construct a Discord embed payload
+          # Truncate the body to Discord's 4096 character limit for embed descriptions just in case
+          TRUNCATED_BODY="${RELEASE_BODY:0:4000}"
+          if [ "${#RELEASE_BODY}" -gt 4000 ]; then
+            TRUNCATED_BODY="${TRUNCATED_BODY}..."
+          fi
+          
+          JSON_PAYLOAD=$(jq -n \
+            --arg title "Rewind ${{ steps.version_meta.outputs.release_tag }} Released!" \
+            --arg desc "$TRUNCATED_BODY" \
+            --arg url "https://github.com/${{ github.repository }}/releases/tag/${{ steps.version_meta.outputs.release_tag }}" \
+            '{embeds: [{title: $title, description: $desc, url: $url, color: 5814783}]}')
+            
+          curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "${DISCORD_WEBHOOK}"
+
