@@ -18,7 +18,11 @@ Rewind is a free, open-source macOS app for instantly clipping highlights of you
 
 ## Installation
 
-You can download the latest pre-compiled version of Rewind from the [Releases](https://github.com/l1zov/rewind/releases) page.
+1. Go to the [Releases page](https://github.com/l1zov/rewind/releases) and download the `.dmg` from the latest release
+2. Open it and drag **Rewind** into your Applications folder
+3. Launch Rewind from Applications
+
+**Note:** The first time you open Rewind, macOS may block it since it's not yet signed with an Apple certificate. Go to **System Settings -> Privacy & Security**, scroll down and click **Open Anyway**. Read more about this [here](https://disable-gatekeeper.github.io/).
 
 If you prefer to build from source, follow the instructions below.
 
@@ -40,7 +44,8 @@ Rewind is built using Swift and Swift Package Manager.
 
 ## Permissions
 
-For Rewind to capture your gameplay, it requires **Screen Recording** permissions. You will be prompted to grant this permission upon the first launch. You can manage this at any time in macOS `System Settings -> Privacy & Security -> Screen Recording`.
+
+On first launch, Rewind will ask for **Screen Recording** access. Click Allow. If you accidentally denied it, turn it back on in **System Settings -> Privacy & Security -> Screen Recording**.
 
 ## Contact
 
