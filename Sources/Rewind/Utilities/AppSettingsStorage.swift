@@ -54,7 +54,7 @@ struct AppSettings: Codable, Sendable {
     errorFeedbackVolume: 20,
     errorFeedbackSoundID: FeedbackSound.defaultError.id,
     discordRPCEnabled: true,
-    useBFrames: false
+    useBFrames: true
   )
 
   private enum CodingKeys: String, CodingKey {
@@ -166,7 +166,7 @@ struct AppSettings: Codable, Sendable {
     errorFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .errorFeedbackSoundID)
       ?? FeedbackSound.defaultError.id
     discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
-    useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? false
+    useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? true
   }
 
   var qualityPreset: QualityPreset {
