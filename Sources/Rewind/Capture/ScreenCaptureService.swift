@@ -66,7 +66,12 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
   ) async throws {
     guard stream == nil else { return }
 
-    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    let content: SCShareableContent
+    if #available(macOS 14.0, *) {
+      content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    } else {
+      content = try await SCShareableContent.current
+    }
     guard let display = content.displays.first else {
       throw CaptureError.noDisplay
     }

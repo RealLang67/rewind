@@ -95,7 +95,12 @@ enum CaptureResolutionProvider {
   private static func getNativePixelDimensions() async -> (width: Int, height: Int)? {
     for attempt in 1...nativeDimensionAttempts {
       do {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content: SCShareableContent
+        if #available(macOS 14.0, *) {
+          content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } else {
+          content = try await SCShareableContent.current
+        }
         guard let display = content.displays.first else {
           AppLog.info(.app, "No displays available from ScreenCaptureKit while loading resolutions. Attempt", attempt)
           if attempt < nativeDimensionAttempts {
