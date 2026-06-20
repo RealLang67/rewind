@@ -15,10 +15,6 @@ struct CaptureResolution: Hashable, Identifiable, Sendable {
 
   /// keeps native capture exact
   var alignedSize: CGSize {
-    if isNative {
-      return CGSize(width: width, height: height)
-    }
-
     let alignedWidth = max(2, width - (width % 2))
     let alignedHeight = max(2, height - (height % 2))
     return CGSize(width: alignedWidth, height: alignedHeight)
@@ -112,26 +108,34 @@ enum CaptureResolutionProvider {
 
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
 
-        let nativeWidth: Int
-        let nativeHeight: Int
+        var nativeWidth: Int = 0
+        var nativeHeight: Int = 0
 
         if #available(macOS 14.0, *) {
           let scale = CGFloat(filter.pointPixelScale)
           let contentRect = filter.contentRect
           nativeWidth = Int(contentRect.width * scale)
           nativeHeight = Int(contentRect.height * scale)
-        } else {
+        }
+
+        if nativeWidth <= 1 || nativeHeight <= 1 {
           let displayID = display.displayID
-          guard let mode = CGDisplayCopyDisplayMode(displayID) else {
-            AppLog.info(.app, "Display mode unavailable while loading resolutions. Attempt", attempt)
-            if attempt < nativeDimensionAttempts {
-              try? await Task.sleep(nanoseconds: nativeDimensionRetryNanos)
-              continue
-            }
-            return nil
+          if let mode = CGDisplayCopyDisplayMode(displayID) {
+            nativeWidth = mode.pixelWidth
+            nativeHeight = mode.pixelHeight
+          } else {
+            nativeWidth = display.width
+            nativeHeight = display.height
           }
-          nativeWidth = mode.pixelWidth
-          nativeHeight = mode.pixelHeight
+        }
+
+        guard nativeWidth > 1, nativeHeight > 1 else {
+          AppLog.info(.app, "Display mode unavailable while loading resolutions. Attempt", attempt)
+          if attempt < nativeDimensionAttempts {
+            try? await Task.sleep(nanoseconds: nativeDimensionRetryNanos)
+            continue
+          }
+          return nil
         }
 
         return (nativeWidth, nativeHeight)

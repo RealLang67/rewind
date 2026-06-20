@@ -90,7 +90,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
       AppLog.debug(.capture, "ScreenCaptureService: pointPixelScale:", scale)
     }
 
-    if nativeWidth == 0 || nativeHeight == 0 {
+    if nativeWidth <= 1 || nativeHeight <= 1 {
       let displayID = display.displayID
       if let mode = CGDisplayCopyDisplayMode(displayID) {
         nativeWidth = mode.pixelWidth
@@ -103,7 +103,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
       }
     }
 
-    guard nativeWidth > 0, nativeHeight > 0 else {
+    guard nativeWidth > 1, nativeHeight > 1 else {
       throw CaptureError.noDisplay
     }
 
