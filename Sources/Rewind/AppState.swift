@@ -329,9 +329,9 @@ final class AppState: ObservableObject {
     Task { await startCaptureAsync() }
   }
 
-  func startAlwaysRecording() {
+  func startAlwaysRecording(isAutomatic: Bool = true) {
     guard alwaysRecordEnabled else { return }
-    startCapture()
+    startCapture(isAutomatic: isAutomatic)
   }
 
   func stopCapture() {
@@ -348,7 +348,7 @@ final class AppState: ObservableObject {
       guard !alwaysRecordEnabled else { return }
       stopCapture()
     } else {
-      startCapture()
+      startCapture(isAutomatic: false)
     }
   }
 
@@ -406,7 +406,7 @@ final class AppState: ObservableObject {
     AppLog.error(.app, "Resolutions did not load after multiple tries")
   }
 
-  private func startCaptureAsync() async {
+  private func startCaptureAsync(isAutomatic: Bool = false) async {
     do {
       try await PermissionManager.ensureScreenAccess()
       permissionState = PermissionManager.currentState()
@@ -423,6 +423,12 @@ final class AppState: ObservableObject {
     } catch {
       isCapturing = false
       updateDiscordActivity(.idle)
+
+      if isAutomatic {
+        AppLog.error(.app, "Automatic capture start failed", error)
+        return
+      }
+
       playErrorFeedback()
       
       let alert = NSAlert()
