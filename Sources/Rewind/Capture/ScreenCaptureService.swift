@@ -78,8 +78,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
 
-    let nativeWidth: Int
-    let nativeHeight: Int
+    var nativeWidth: Int = 0
+    var nativeHeight: Int = 0
 
     if #available(macOS 14.0, *) {
       let scale = CGFloat(filter.pointPixelScale)
@@ -88,14 +88,23 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
       nativeHeight = Int(contentRect.height * scale)
       AppLog.debug(.capture, "ScreenCaptureService: contentRect:", contentRect.width, "x", contentRect.height)
       AppLog.debug(.capture, "ScreenCaptureService: pointPixelScale:", scale)
-    } else {
+    }
+
+    if nativeWidth == 0 || nativeHeight == 0 {
       let displayID = display.displayID
-      guard let mode = CGDisplayCopyDisplayMode(displayID) else {
-        throw CaptureError.noDisplay
+      if let mode = CGDisplayCopyDisplayMode(displayID) {
+        nativeWidth = mode.pixelWidth
+        nativeHeight = mode.pixelHeight
+        AppLog.debug(.capture, "ScreenCaptureService: fallback to CGDisplayMode pixels:", nativeWidth, "x", nativeHeight)
+      } else {
+        nativeWidth = display.width
+        nativeHeight = display.height
+        AppLog.debug(.capture, "ScreenCaptureService: fallback to display properties:", nativeWidth, "x", nativeHeight)
       }
-      nativeWidth = mode.pixelWidth
-      nativeHeight = mode.pixelHeight
-      AppLog.debug(.capture, "ScreenCaptureService: CGDisplayMode pixels:", nativeWidth, "x", nativeHeight)
+    }
+
+    guard nativeWidth > 0, nativeHeight > 0 else {
+      throw CaptureError.noDisplay
     }
 
     AppLog.debug(.capture, "ScreenCaptureService: native pixels:", nativeWidth, "x", nativeHeight)
