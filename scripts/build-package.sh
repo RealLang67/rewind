@@ -172,6 +172,10 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>https://l1zov.github.io/rewind/appcast.xml</string>
   <key>SUPublicEDKey</key>
   <string>d0qDhMh7Acak94tDqDkPiyYj9U01VMshN1MZo7T6uD4=</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Rewind needs screen capture access to record your screen.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Rewind needs microphone access to record system audio.</string>
 </dict>
 </plist>
 EOF
@@ -194,6 +198,8 @@ cat > "${STAGING_ROOT}/Rewind.entitlements" <<EOF
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
   <true/>
 </dict>
 </plist>
