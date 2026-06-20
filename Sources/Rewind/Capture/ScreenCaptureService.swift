@@ -117,12 +117,29 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
     }
 
     captureResolution = targetResolution
-    let outputSize = targetResolution.alignedSize
+    var outputSize = targetResolution.alignedSize
+
+    #if arch(x86_64)
+    // intel hardware hevc encoder crash if initialized above 4K
+    // cap the maximum capture dimensions to 4k (3840x2160 or 4096x2160)
+    let maxIntelWidth: CGFloat = 4096
+    let maxIntelHeight: CGFloat = 2160
+    if outputSize.width > maxIntelWidth || outputSize.height > maxIntelHeight {
+      let scale = min(maxIntelWidth / outputSize.width, maxIntelHeight / outputSize.height)
+      let newWidth = Int((outputSize.width * scale).rounded())
+      let newHeight = Int((outputSize.height * scale).rounded())
+      outputSize = CGSize(
+        width: max(2, newWidth - (newWidth % 2)),
+        height: max(2, newHeight - (newHeight % 2))
+      )
+      AppLog.info(.capture, "Capped Intel capture resolution to \(outputSize.width)x\(outputSize.height)")
+    }
+    #endif
 
     let config = SCStreamConfiguration()
     config.width = Int(outputSize.width)
     config.height = Int(outputSize.height)
-    config.scalesToFit = !targetResolution.isNative
+    config.scalesToFit = !targetResolution.isNative || (outputSize != targetResolution.alignedSize)
     config.queueDepth = 5
     config.pixelFormat = capturePixelFormat(for: quality)
     config.colorSpaceName = CGColorSpace.extendedSRGB
