@@ -42,7 +42,7 @@ struct MenuBarView: View {
     Menu("Resolution") {
       resolutionMenuContent
     }
-    .disabled(appState.isCapturing)
+    .disabled(!appState.permissionState.screenRecording)
 
     Menu("Quality") {
       ForEach(QualityPreset.presets) { preset in
@@ -62,7 +62,7 @@ struct MenuBarView: View {
         .toggleStyle(.checkbox)
       }
     }
-    .disabled(appState.isCapturing)
+    .disabled(!appState.permissionState.screenRecording)
 
     Button("Show in Finder") {
       showLastClipInFinder()
