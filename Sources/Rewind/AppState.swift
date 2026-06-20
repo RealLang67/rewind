@@ -269,7 +269,6 @@ final class AppState: ObservableObject {
   private var discordPresenceRetryTask: Task<Void, Never>?
   private var preferredResolutionID: String?
   private var isRestoringSettings = false
-  private var isTerminatingForCaptureIssue = false
  
   init(
     captureManager: CaptureManager = CaptureManager(),
@@ -421,6 +420,15 @@ final class AppState: ObservableObject {
       isCapturing = false
       updateDiscordActivity(.idle)
       playErrorFeedback()
+      
+      let alert = NSAlert()
+      alert.messageText = "Rewind failed to start capture"
+      alert.informativeText = "Rewind could not start recording: \(error.localizedDescription)"
+      alert.alertStyle = .critical
+      alert.addButton(withTitle: "OK")
+      
+      NSApp.activate(ignoringOtherApps: true)
+      alert.runModal()
     }
   }
 
@@ -607,9 +615,23 @@ final class AppState: ObservableObject {
     updateDiscordActivity(.idle)
     playErrorFeedback()
     AppLog.error(.app, "Capture interrupted:", error)
-    guard alwaysRecordEnabled, !isTerminatingForCaptureIssue else { return }
-    isTerminatingForCaptureIssue = true
-    NSApp.terminate(nil)
+    guard alwaysRecordEnabled else {
+      let alert = NSAlert()
+      alert.messageText = "Rewind capture interrupted"
+      alert.informativeText = "Recording stopped unexpectedly: \(error.localizedDescription)"
+      alert.alertStyle = .warning
+      alert.addButton(withTitle: "OK")
+      
+      NSApp.activate(ignoringOtherApps: true)
+      alert.runModal()
+      return 
+    }
+    Task {
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      await MainActor.run {
+        startAlwaysRecording()
+      }
+    }
   }
 
   private func updateGlobalHotkeys() {

@@ -112,6 +112,16 @@ final class AppLifecycleController: NSObject {
         }
       }
       .store(in: &cancellables)
+
+    NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didWakeNotification,
+      object: nil,
+      queue: .main
+    ) { [weak appState] _ in
+      Task { @MainActor in
+        appState?.startAlwaysRecording()
+      }
+    }
   }
 
   private func observeWindowState() {
