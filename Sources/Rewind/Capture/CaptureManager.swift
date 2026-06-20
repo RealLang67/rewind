@@ -435,7 +435,7 @@ actor CaptureManager {
   }
 
   private func handleCaptureFailure(_ error: Error, label: String) async {
-    guard isRunning else { return }
+    guard isRunning, !isStopping else { return }
     Self.logError(label, error)
     await stopCapturePipeline()
     if let onCaptureInterrupted {
