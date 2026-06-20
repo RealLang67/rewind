@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
       guard selectedResolution != oldValue else { return }
       preferredResolutionID = selectedResolution?.id
       persistSettings()
+      restartCaptureSilently()
     }
   }
   @Published var selectedQuality: QualityPreset = .default {
@@ -41,6 +42,7 @@ final class AppState: ObservableObject {
       guard !isRestoringSettings else { return }
       guard selectedQuality != oldValue else { return }
       persistSettings()
+      restartCaptureSilently()
     }
   }
   @Published var selectedFrameRate: CaptureFrameRate = .default {
@@ -48,6 +50,7 @@ final class AppState: ObservableObject {
       guard !isRestoringSettings else { return }
       guard selectedFrameRate != oldValue else { return }
       persistSettings()
+      restartCaptureSilently()
     }
   }
   @Published var selectedContainer: CaptureContainer = .default {
@@ -62,6 +65,7 @@ final class AppState: ObservableObject {
       guard !isRestoringSettings else { return }
       guard selectedAudioCodec != oldValue else { return }
       persistSettings()
+      restartCaptureSilently()
     }
   }
   @Published var hotkey: Hotkey = .default {
@@ -437,6 +441,27 @@ final class AppState: ObservableObject {
     isCapturing = false
     updateDiscordActivity(.idle)
     playRecordingEndFeedback()
+  }
+
+  private func restartCaptureSilently() {
+    guard isCapturing else { return }
+    Task {
+      await captureManager.stop()
+      do {
+        try await captureManager.start(
+          resolution: selectedResolution,
+          quality: selectedQuality,
+          frameRate: selectedFrameRate.framesPerSecond,
+          audioCodec: selectedAudioCodec,
+          useBFrames: useBFrames
+        )
+      } catch {
+        isCapturing = false
+        updateDiscordActivity(.idle)
+        playErrorFeedback()
+        AppLog.error(.app, "Silent restart failed:", error)
+      }
+    }
   }
 
   private func saveReplayAsync() async {
