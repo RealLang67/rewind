@@ -325,8 +325,8 @@ final class AppState: ObservableObject {
     }
   }
 
-  func startCapture() {
-    Task { await startCaptureAsync() }
+  func startCapture(isAutomatic: Bool = false) {
+    Task { await startCaptureAsync(isAutomatic: isAutomatic) }
   }
 
   func startAlwaysRecording(isAutomatic: Bool = true) {
