@@ -146,7 +146,27 @@ struct MenuBarView: View {
 
   private func showLastClipInFinder() {
     guard let clip = appState.lastClip else { return }
+    
+    let scriptSource = """
+    tell application "Finder"
+        activate
+        reveal POSIX file "\(clip.url.path)"
+    end tell
+    """
+    
+    if let script = NSAppleScript(source: scriptSource) {
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+        if error == nil {
+            return
+        }
+    }
+    
+    // fallback
     NSWorkspace.shared.activateFileViewerSelecting([clip.url])
+    if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+      finder.activate(options: [.activateIgnoringOtherApps])
+    }
   }
 
   @Environment(\.openWindow) private var openWindow
