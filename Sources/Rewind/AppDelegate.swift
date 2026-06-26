@@ -2,13 +2,13 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  private let compositionRoot = AppCompositionRoot.shared
+	private let compositionRoot = AppCompositionRoot.shared
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
-    compositionRoot.lifecycleController.start()
-  }
+	func applicationDidFinishLaunching(_: Notification) {
+		compositionRoot.lifecycleController.start()
+	}
 
-  func applicationWillTerminate(_ notification: Notification) {
-    compositionRoot.lifecycleController.stop()
-  }
+	func applicationWillTerminate(_: Notification) {
+		compositionRoot.lifecycleController.stop()
+	}
 }

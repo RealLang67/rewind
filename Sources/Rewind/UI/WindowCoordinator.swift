@@ -1,22 +1,22 @@
 @MainActor
 final class WindowCoordinator {
-  private let onboardingWindowController: OnboardingWindowController
-  private let lowStorageWarningWindowController: LowStorageWarningWindowController
+	private let onboardingWindowController: OnboardingWindowController
+	private let lowStorageWarningWindowController: LowStorageWarningWindowController
 
-  init() {
-    onboardingWindowController = OnboardingWindowController()
-    lowStorageWarningWindowController = LowStorageWarningWindowController()
-  }
+	init() {
+		onboardingWindowController = OnboardingWindowController()
+		lowStorageWarningWindowController = LowStorageWarningWindowController()
+	}
 
-  func showOnboardingIfNeeded() {
-    onboardingWindowController.showIfNeeded()
-  }
+	func showOnboardingIfNeeded() {
+		onboardingWindowController.showIfNeeded()
+	}
 
-  func showLowStorageWarning(_ warningMessage: String) {
-    lowStorageWarningWindowController.show(warningMessage: warningMessage)
-  }
+	func showLowStorageWarning(_ warningMessage: String) {
+		lowStorageWarningWindowController.show(warningMessage: warningMessage)
+	}
 
-  func closeLowStorageWarningIfNeeded() {
-    lowStorageWarningWindowController.closeIfNeeded()
-  }
+	func closeLowStorageWarningIfNeeded() {
+		lowStorageWarningWindowController.closeIfNeeded()
+	}
 }

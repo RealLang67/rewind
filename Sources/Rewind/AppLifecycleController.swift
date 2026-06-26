@@ -3,160 +3,160 @@ import Combine
 
 @MainActor
 final class AppLifecycleController: NSObject {
-  private let appState: AppState
-  private let hotkeyManager: GlobalHotkeyManager
-  private var windowCoordinator: WindowCoordinator?
+	private let appState: AppState
+	private let hotkeyManager: GlobalHotkeyManager
+	private var windowCoordinator: WindowCoordinator?
 
-  private var appActiveObserver: NSObjectProtocol?
-  private var dockRelevantWindows = Set<ObjectIdentifier>()
-  private var cancellables = Set<AnyCancellable>()
-  private var lowStorageWarningActive = false
-  private var hasStarted = false
+	private var appActiveObserver: NSObjectProtocol?
+	private var dockRelevantWindows = Set<ObjectIdentifier>()
+	private var cancellables = Set<AnyCancellable>()
+	private var lowStorageWarningActive = false
+	private var hasStarted = false
 
-  init(
-    appState: AppState,
-    hotkeyManager: GlobalHotkeyManager
-  ) {
-    self.appState = appState
-    self.hotkeyManager = hotkeyManager
-    super.init()
-  }
+	init(
+		appState: AppState,
+		hotkeyManager: GlobalHotkeyManager
+	) {
+		self.appState = appState
+		self.hotkeyManager = hotkeyManager
+		super.init()
+	}
 
-  func start() {
-    guard !hasStarted else { return }
-    hasStarted = true
+	func start() {
+		guard !hasStarted else { return }
+		hasStarted = true
 
-    NSApp.setActivationPolicy(.accessory)
-    ensureUIControllers()
-    configureHotkeys()
-    observeApplicationState()
-    observeWindowState()
+		NSApp.setActivationPolicy(.accessory)
+		ensureUIControllers()
+		configureHotkeys()
+		observeApplicationState()
+		observeWindowState()
 
-    windowCoordinator?.showOnboardingIfNeeded()
-    appState.startAlwaysRecording()
-  }
+		windowCoordinator?.showOnboardingIfNeeded()
+		appState.startAlwaysRecording()
+	}
 
-  func stop() {
-    guard hasStarted else { return }
-    hasStarted = false
+	func stop() {
+		guard hasStarted else { return }
+		hasStarted = false
 
-    if let appActiveObserver {
-      NotificationCenter.default.removeObserver(appActiveObserver)
-      self.appActiveObserver = nil
-    }
-    NotificationCenter.default.removeObserver(
-      self,
-      name: NSWindow.didBecomeKeyNotification,
-      object: nil
-    )
-    NotificationCenter.default.removeObserver(
-      self,
-      name: NSWindow.willCloseNotification,
-      object: nil
-    )
+		if let appActiveObserver {
+			NotificationCenter.default.removeObserver(appActiveObserver)
+			self.appActiveObserver = nil
+		}
+		NotificationCenter.default.removeObserver(
+			self,
+			name: NSWindow.didBecomeKeyNotification,
+			object: nil
+		)
+		NotificationCenter.default.removeObserver(
+			self,
+			name: NSWindow.willCloseNotification,
+			object: nil
+		)
 
-    hotkeyManager.configureActions(onSaveReplay: nil, onRecordToggle: nil)
-    hotkeyManager.unregister()
-    windowCoordinator?.closeLowStorageWarningIfNeeded()
-    cancellables.removeAll()
-    windowCoordinator = nil
-    dockRelevantWindows.removeAll()
-    NSApp.setActivationPolicy(.accessory)
-  }
+		hotkeyManager.configureActions(onSaveReplay: nil, onRecordToggle: nil)
+		hotkeyManager.unregister()
+		windowCoordinator?.closeLowStorageWarningIfNeeded()
+		cancellables.removeAll()
+		windowCoordinator = nil
+		dockRelevantWindows.removeAll()
+		NSApp.setActivationPolicy(.accessory)
+	}
 
-  private func ensureUIControllers() {
-    guard windowCoordinator == nil else { return }
-    windowCoordinator = WindowCoordinator()
-  }
+	private func ensureUIControllers() {
+		guard windowCoordinator == nil else { return }
+		windowCoordinator = WindowCoordinator()
+	}
 
-  private func configureHotkeys() {
-    hotkeyManager.configureActions(
-      onSaveReplay: { [weak appState] in
-        appState?.saveReplay()
-      },
-      onRecordToggle: { [weak appState] in
-        appState?.toggleCapture()
-      }
-    )
+	private func configureHotkeys() {
+		hotkeyManager.configureActions(
+			onSaveReplay: { [weak appState] in
+				appState?.saveReplay()
+			},
+			onRecordToggle: { [weak appState] in
+				appState?.toggleCapture()
+			}
+		)
 
-    hotkeyManager.register(
-      saveReplayHotkey: appState.hotkey,
-      recordToggleHotkey: appState.startRecordingHotkey
-    )
-  }
+		hotkeyManager.register(
+			saveReplayHotkey: appState.hotkey,
+			recordToggleHotkey: appState.startRecordingHotkey
+		)
+	}
 
-  private func observeApplicationState() {
-    appActiveObserver = NotificationCenter.default.addObserver(
-      forName: NSApplication.didBecomeActiveNotification,
-      object: nil,
-      queue: .main
-    ) { [weak appState] _ in
-      Task { @MainActor in
-        appState?.refreshPermissions()
-      }
-    }
+	private func observeApplicationState() {
+		appActiveObserver = NotificationCenter.default.addObserver(
+			forName: NSApplication.didBecomeActiveNotification,
+			object: nil,
+			queue: .main
+		) { [weak appState] _ in
+			Task { @MainActor in
+				appState?.refreshPermissions()
+			}
+		}
 
-    appState.$lowStorageWarningMessage
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] warningMessage in
-        guard let self else { return }
+		appState.$lowStorageWarningMessage
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] warningMessage in
+				guard let self else { return }
 
-        if let warningMessage {
-          if !lowStorageWarningActive {
-            lowStorageWarningActive = true
-            windowCoordinator?.showLowStorageWarning(warningMessage)
-          }
-        } else {
-          lowStorageWarningActive = false
-          windowCoordinator?.closeLowStorageWarningIfNeeded()
-        }
-      }
-      .store(in: &cancellables)
+				if let warningMessage {
+					if !lowStorageWarningActive {
+						lowStorageWarningActive = true
+						windowCoordinator?.showLowStorageWarning(warningMessage)
+					}
+				} else {
+					lowStorageWarningActive = false
+					windowCoordinator?.closeLowStorageWarningIfNeeded()
+				}
+			}
+			.store(in: &cancellables)
 
-    NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.didWakeNotification,
-      object: nil,
-      queue: .main
-    ) { [weak appState] _ in
-      Task { @MainActor in
-        appState?.startAlwaysRecording()
-      }
-    }
-  }
+		NSWorkspace.shared.notificationCenter.addObserver(
+			forName: NSWorkspace.didWakeNotification,
+			object: nil,
+			queue: .main
+		) { [weak appState] _ in
+			Task { @MainActor in
+				appState?.startAlwaysRecording()
+			}
+		}
+	}
 
-  private func observeWindowState() {
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(handleWindowDidBecomeKey(_:)),
-      name: NSWindow.didBecomeKeyNotification,
-      object: nil
-    )
-    NotificationCenter.default.addObserver(
-      self,
-      selector: #selector(handleWindowWillClose(_:)),
-      name: NSWindow.willCloseNotification,
-      object: nil
-    )
-  }
+	private func observeWindowState() {
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(handleWindowDidBecomeKey(_:)),
+			name: NSWindow.didBecomeKeyNotification,
+			object: nil
+		)
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(handleWindowWillClose(_:)),
+			name: NSWindow.willCloseNotification,
+			object: nil
+		)
+	}
 
-  @objc
-  private func handleWindowDidBecomeKey(_ notification: Notification) {
-    guard let window = notification.object as? NSWindow else { return }
-    guard window.styleMask.contains(.titled) else { return }
-    dockRelevantWindows.insert(ObjectIdentifier(window))
-    updateActivationPolicyForWindowVisibility()
-  }
+	@objc
+	private func handleWindowDidBecomeKey(_ notification: Notification) {
+		guard let window = notification.object as? NSWindow else { return }
+		guard window.styleMask.contains(.titled) else { return }
+		dockRelevantWindows.insert(ObjectIdentifier(window))
+		updateActivationPolicyForWindowVisibility()
+	}
 
-  @objc
-  private func handleWindowWillClose(_ notification: Notification) {
-    guard let window = notification.object as? NSWindow else { return }
-    dockRelevantWindows.remove(ObjectIdentifier(window))
-    updateActivationPolicyForWindowVisibility()
-  }
+	@objc
+	private func handleWindowWillClose(_ notification: Notification) {
+		guard let window = notification.object as? NSWindow else { return }
+		dockRelevantWindows.remove(ObjectIdentifier(window))
+		updateActivationPolicyForWindowVisibility()
+	}
 
-  private func updateActivationPolicyForWindowVisibility() {
-    let targetPolicy: NSApplication.ActivationPolicy = dockRelevantWindows.isEmpty ? .accessory : .regular
-    guard NSApp.activationPolicy() != targetPolicy else { return }
-    NSApp.setActivationPolicy(targetPolicy)
-  }
+	private func updateActivationPolicyForWindowVisibility() {
+		let targetPolicy: NSApplication.ActivationPolicy = dockRelevantWindows.isEmpty ? .accessory : .regular
+		guard NSApp.activationPolicy() != targetPolicy else { return }
+		NSApp.setActivationPolicy(targetPolicy)
+	}
 }
