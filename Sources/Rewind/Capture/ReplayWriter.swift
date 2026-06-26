@@ -224,8 +224,12 @@ final class ReplayWriter: @unchecked Sendable {
   }
 
   private func sourcePixelFormat(for quality: QualityPreset) -> OSType {
-    _ = quality
-    return kCVPixelFormatType_32BGRA
+    switch quality.id {
+    case "lossless", "near_lossless":
+      return kCVPixelFormatType_32BGRA
+    default:
+      return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+    }
   }
 
   private func videoCompressionProperties(
