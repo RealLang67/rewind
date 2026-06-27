@@ -284,6 +284,7 @@ final class AppState: ObservableObject {
 	private var discordActivityState: DiscordActivityState = .idle
 	private var discordPresenceRetryTask: Task<Void, Never>?
 	private var storageMonitorTask: Task<Void, Never>?
+	private var automaticCaptureRetryTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
 
@@ -424,6 +425,9 @@ final class AppState: ObservableObject {
 	}
 
 	private func startCaptureAsync(isAutomatic: Bool = false) async {
+		if !isAutomatic {
+			automaticCaptureRetryTask?.cancel()
+		}
 		do {
 			try await PermissionManager.ensureScreenAccess()
 			permissionState = PermissionManager.currentState()
@@ -437,12 +441,14 @@ final class AppState: ObservableObject {
 			isCapturing = true
 			updateDiscordActivity(.recording)
 			playRecordingStartFeedback()
+			automaticCaptureRetryTask?.cancel()
 		} catch {
 			isCapturing = false
 			updateDiscordActivity(.idle)
 
 			if isAutomatic {
 				AppLog.error(.app, "Automatic capture start failed", error)
+				scheduleCaptureRetry()
 				return
 			}
 
@@ -461,6 +467,7 @@ final class AppState: ObservableObject {
 	}
 
 	private func stopCaptureAsync() async {
+		automaticCaptureRetryTask?.cancel()
 		await captureManager.stop()
 		isCapturing = false
 		updateDiscordActivity(.idle)
@@ -668,21 +675,17 @@ final class AppState: ObservableObject {
 		updateDiscordActivity(.idle)
 		playErrorFeedback()
 		AppLog.error(.app, "Capture interrupted:", error)
-		guard alwaysRecordEnabled else {
-			let alert = NSAlert()
-			alert.messageText = "Rewind capture interrupted"
-			alert.informativeText = "Recording stopped unexpectedly: \(error.localizedDescription)"
-			alert.alertStyle = .warning
-			alert.addButton(withTitle: "OK")
+		scheduleCaptureRetry()
+	}
 
-			NSApp.activate(ignoringOtherApps: true)
-			alert.runModal()
-			return
-		}
-		Task {
+	private func scheduleCaptureRetry() {
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = Task { @MainActor [weak self] in
+			guard let self else { return }
 			try? await Task.sleep(nanoseconds: 2_000_000_000)
-			await MainActor.run {
-				startAlwaysRecording()
+			if Task.isCancelled { return }
+			if !self.isCapturing {
+				self.startCapture(isAutomatic: true)
 			}
 		}
 	}
