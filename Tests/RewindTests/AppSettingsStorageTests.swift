@@ -40,6 +40,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(settings.useBFrames, AppSettings.default.useBFrames)
+		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 	}
 
 	func testSaveThenLoadPersistsValues() {
@@ -66,7 +67,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 45,
 			errorFeedbackSoundID: FeedbackSound.pop.id,
 			discordRPCEnabled: false,
-			useBFrames: false
+			useBFrames: false,
+			fileLoggingEnabled: false
 		)
 
 		AppSettingsStorage.save(expected)
@@ -95,6 +97,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, expected.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, expected.useBFrames)
+		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
 	}
 
 	func testLoadClearsStoredValuesAndReturnsDefaultWhenStoredSettingsAreInvalid() throws {
@@ -121,7 +124,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 300,
 			errorFeedbackSoundID: "1234556789blahhhh",
 			discordRPCEnabled: false,
-			useBFrames: false
+			useBFrames: false,
+			fileLoggingEnabled: false
 		)
 		let data = try JSONEncoder().encode(invalid)
 		UserDefaults.standard.set(data, forKey: storageKey)
@@ -152,6 +156,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
+		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 	}
 
 	func testLoadFallsBackToDefaultWhenStoredBlobIsInvalid() {
@@ -182,6 +187,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
+		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 	}
 
 	func testSaveClearsStorageWhenSettingsAreInvalid() {
@@ -208,7 +214,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
 			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
 			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
-			useBFrames: AppSettings.default.useBFrames
+			useBFrames: AppSettings.default.useBFrames,
+			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled
 		)
 
 		AppSettingsStorage.save(invalid)
