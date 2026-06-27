@@ -30,6 +30,7 @@ struct AppSettings: Codable {
 	var errorFeedbackSoundID: String
 	var discordRPCEnabled: Bool
 	var useBFrames: Bool
+	var fileLoggingEnabled: Bool
 
 	static let `default` = AppSettings(
 		replayDuration: 30,
@@ -54,7 +55,8 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: 20,
 		errorFeedbackSoundID: FeedbackSound.defaultError.id,
 		discordRPCEnabled: true,
-		useBFrames: true
+		useBFrames: true,
+		fileLoggingEnabled: false
 	)
 
 	private enum CodingKeys: String, CodingKey {
@@ -81,6 +83,7 @@ struct AppSettings: Codable {
 		case errorFeedbackSoundID
 		case discordRPCEnabled
 		case useBFrames
+		case fileLoggingEnabled
 	}
 
 	init(
@@ -106,7 +109,8 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: Double,
 		errorFeedbackSoundID: String,
 		discordRPCEnabled: Bool,
-		useBFrames: Bool
+		useBFrames: Bool,
+		fileLoggingEnabled: Bool
 	) {
 		self.replayDuration = replayDuration
 		self.resolutionID = resolutionID
@@ -131,6 +135,7 @@ struct AppSettings: Codable {
 		self.errorFeedbackSoundID = errorFeedbackSoundID
 		self.discordRPCEnabled = discordRPCEnabled
 		self.useBFrames = useBFrames
+		self.fileLoggingEnabled = fileLoggingEnabled
 	}
 
 	init(from decoder: Decoder) throws {
@@ -167,6 +172,7 @@ struct AppSettings: Codable {
 			?? FeedbackSound.defaultError.id
 		discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
 		useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? true
+		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
 	}
 
 	var qualityPreset: QualityPreset {

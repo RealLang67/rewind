@@ -267,6 +267,15 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var fileLoggingEnabled = AppSettings.default.fileLoggingEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard fileLoggingEnabled != oldValue else { return }
+			AppLog.fileLoggingEnabled = fileLoggingEnabled
+			persistSettings()
+		}
+	}
+
 	@Published private(set) var lowStorageWarningMessage: String?
 
 	private let captureManager: CaptureManager
@@ -325,7 +334,9 @@ final class AppState: ObservableObject {
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
 		useBFrames = settings.useBFrames
+		fileLoggingEnabled = settings.fileLoggingEnabled
 		isRestoringSettings = false
+		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
 			await self?.captureManager.setOnCaptureInterruptedHandler { [weak self] error in
 				self?.handleCaptureInterrupted(error)
@@ -722,7 +733,8 @@ final class AppState: ObservableObject {
 				errorFeedbackVolume: errorFeedbackVolume,
 				errorFeedbackSoundID: errorFeedbackSound.id,
 				discordRPCEnabled: discordRPCEnabled,
-				useBFrames: useBFrames
+				useBFrames: useBFrames,
+				fileLoggingEnabled: fileLoggingEnabled
 			)
 		)
 	}

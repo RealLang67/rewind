@@ -25,7 +25,7 @@ struct SettingsView: View {
 			IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
-			AboutSettingsPane(updaterController: updaterController)
+			AboutSettingsPane(appState: appState, updaterController: updaterController)
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
 		.frame(minWidth: 440, minHeight: 440)
@@ -358,6 +358,7 @@ private struct IntegrationsSettingsPane: View {
 }
 
 private struct AboutSettingsPane: View {
+	@ObservedObject var appState: AppState
 	@ObservedObject var updaterController: UpdaterController
 
 	private var appVersion: String {
@@ -400,6 +401,16 @@ private struct AboutSettingsPane: View {
 					updaterController.checkForUpdates()
 				}
 				.disabled(!updaterController.updater.canCheckForUpdates)
+			}
+
+			Section("Advanced") {
+				Toggle("Enable verbose file logging", isOn: $appState.fileLoggingEnabled)
+				
+				Button("Reveal Log File in Finder") {
+					if let url = AppLog.logFileURL {
+						NSWorkspace.shared.activateFileViewerSelecting([url])
+					}
+				}
 			}
 		}
 		.formStyle(.grouped)
