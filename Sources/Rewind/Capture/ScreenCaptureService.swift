@@ -163,7 +163,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		config.scalesToFit = (config.width != nativeWidth) || (config.height != nativeHeight)
 		config.queueDepth = 5
 		config.pixelFormat = capturePixelFormat(for: quality)
-		config.colorSpaceName = CGColorSpace.extendedSRGB
+		config.colorSpaceName = CGColorSpace.itur_709
 		config.capturesAudio = true
 		// user controlled
 		let clampedFrameRate = max(30, min(frameRate, 60))
@@ -201,7 +201,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
 	private func capturePixelFormat(for quality: QualityPreset) -> OSType {
 		_ = quality
-		return kCVPixelFormatType_32BGRA
+		return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 	}
 
 	func stopCapture() async {

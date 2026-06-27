@@ -227,12 +227,12 @@ final class ReplayWriter: @unchecked Sendable {
     }
 
     private func sourcePixelFormat(for quality: QualityPreset) -> OSType {
-        // Must match the format ScreenCaptureService actually captures (BGRA). The pixel
+        // Must match the format ScreenCaptureService actually captures (NV12). The pixel
         // buffers handed to the adaptor come straight from ScreenCaptureKit, so declaring a
         // different source format here breaks the zero-copy path and forces a per-frame
         // color conversion on the writer queue, causing encoder backpressure and stutter.
         _ = quality
-        return kCVPixelFormatType_32BGRA
+        return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
     }
 
     private func videoCompressionProperties(
