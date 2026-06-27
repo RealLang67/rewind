@@ -81,7 +81,7 @@ private struct CaptureSettingsPane: View {
 			}
 
 			Section("Recording") {
-				LabeledContent("Clip length") {
+				LabeledContent {
 					Stepper(
 						value: replayDurationSecondsBinding,
 						in: replayDurationRange,
@@ -91,12 +91,16 @@ private struct CaptureSettingsPane: View {
 							.foregroundStyle(.secondary)
 					}
 					.frame(width: 200, alignment: .trailing)
+				} label: {
+					HelpLabel("Clip length", help: "Determines how many seconds of video to save when capturing.")
 				}
 
-				LabeledContent("Always record") {
+				LabeledContent {
 					Toggle("", isOn: $appState.alwaysRecordEnabled)
 						.labelsHidden()
 						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Always record", help: "Automatically saves clips continuously in the background.")
 				}
 			}
 			.disabled(settingsLocked)
@@ -107,37 +111,46 @@ private struct CaptureSettingsPane: View {
 						.frame(width: 200, alignment: .trailing)
 				}
 
-				Picker("Quality", selection: $appState.selectedQuality) {
+				Picker(selection: $appState.selectedQuality) {
 					ForEach(QualityPreset.presets) { preset in
 						Text(preset.label).tag(preset)
 					}
+				} label: {
+					HelpLabel("Quality", help: "Higher quality increases file size but produces clearer video.")
 				}
 				.pickerStyle(.menu)
 
-				Picker("Frame rate", selection: $appState.selectedFrameRate) {
+				Picker(selection: $appState.selectedFrameRate) {
 					ForEach(CaptureFrameRate.options) { option in
 						Text(option.label).tag(option)
 					}
+				} label: {
+					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
 				}
 				.pickerStyle(.menu)
 
-				Toggle("Use B-Frames", isOn: $appState.useBFrames)
-					.help("Improves quality at no file size cost, but may cause bugs.")
+				Toggle(isOn: $appState.useBFrames) {
+					HelpLabel("Use B-Frames", help: "Improves quality at no file size cost, but may cause issues.")
+				}
 			}
 			.disabled(settingsLocked)
 
 			Section("Output") {
-				Picker("Container", selection: $appState.selectedContainer) {
+				Picker(selection: $appState.selectedContainer) {
 					ForEach(CaptureContainer.options) { option in
 						Text(option.label).tag(option)
 					}
+				} label: {
+					HelpLabel("Container", help: "Video file format for saved clips (.mp4 or .mov).")
 				}
 				.pickerStyle(.menu)
 
-				Picker("Audio codec", selection: $appState.selectedAudioCodec) {
+				Picker(selection: $appState.selectedAudioCodec) {
 					ForEach(CaptureAudioCodec.options) { option in
 						Text(option.label).tag(option)
 					}
+				} label: {
+					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
 				}
 				.pickerStyle(.menu)
 			}
@@ -349,7 +362,9 @@ private struct IntegrationsSettingsPane: View {
 			}
 
 			Section("Connections") {
-				Toggle("Enable Discord RPC", isOn: $appState.discordRPCEnabled)
+				Toggle(isOn: $appState.discordRPCEnabled) {
+					HelpLabel("Enable Discord RPC", help: "Shows your recording status on your Discord profile.")
+				}
 			}
 			.disabled(settingsLocked)
 		}
@@ -404,7 +419,9 @@ private struct AboutSettingsPane: View {
 			}
 
 			Section("Advanced") {
-				Toggle("Enable verbose file logging", isOn: $appState.fileLoggingEnabled)
+				Toggle(isOn: $appState.fileLoggingEnabled) {
+					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
+				}
 				
 				Button("Reveal Log File in Finder") {
 					if let url = AppLog.logFileURL {
@@ -414,6 +431,45 @@ private struct AboutSettingsPane: View {
 			}
 		}
 		.formStyle(.grouped)
+	}
+}
+
+private struct HelpLabel: View {
+	let title: String
+	let help: String
+	@State private var isHovering = false
+	@State private var hoverTask: Task<Void, Never>?
+
+	init(_ title: String, help: String) {
+		self.title = title
+		self.help = help
+	}
+
+	var body: some View {
+		HStack(spacing: 4) {
+			Text(title)
+			Image(systemName: "questionmark.circle")
+				.foregroundStyle(isHovering ? .primary : .secondary)
+				.onHover { hovering in
+					hoverTask?.cancel()
+					if hovering {
+						hoverTask = Task {
+							try? await Task.sleep(nanoseconds: 500_000_000)
+							if !Task.isCancelled {
+								isHovering = true
+							}
+						}
+					} else {
+						isHovering = false
+					}
+				}
+				.popover(isPresented: $isHovering, arrowEdge: .top) {
+					Text(help)
+						.fixedSize(horizontal: false, vertical: true)
+						.padding(10)
+						.frame(maxWidth: 250)
+				}
+		}
 	}
 }
 
