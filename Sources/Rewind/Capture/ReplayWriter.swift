@@ -54,7 +54,7 @@ final class ReplayWriter: @unchecked Sendable {
     private var requiresAudioForSession = false
     private var sessionStarted = false
     private var sessionStartPTS = CMTime.invalid
-    private var audioPTSOffset = CMTime.zero
+    private var videoPTSOffset = CMTime.zero
     private var audioPTSOffsetValid = false
     private var audioBufferingEndPTS = CMTime.invalid
     private var acceptsMediaData = false
@@ -292,7 +292,7 @@ final class ReplayWriter: @unchecked Sendable {
         acceptsMediaData = false
         sessionStarted = false
         sessionStartPTS = CMTime.invalid
-        audioPTSOffset = .zero
+        videoPTSOffset = .zero
         audioPTSOffsetValid = false
         audioBufferingEndPTS = CMTime.invalid
         lastVideoPTS = CMTime.invalid
@@ -482,11 +482,51 @@ final class ReplayWriter: @unchecked Sendable {
         return true
     }
 
+    private func adjustVideoSample(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer {
+        var count: CMItemCount = 0
+        CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+        guard count > 0 else { return sampleBuffer }
+        var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        CMSampleBufferGetSampleTimingInfoArray(
+            sampleBuffer, entryCount: count, arrayToFill: &timingInfo, entriesNeededOut: &count)
+
+        let defaultDuration = CMTime(value: 1, timescale: Int32(configuredFrameRate))
+
+        for i in 0..<count {
+            if timingInfo[i].presentationTimeStamp.isValid {
+                timingInfo[i].presentationTimeStamp = CMTimeAdd(
+                    timingInfo[i].presentationTimeStamp, videoPTSOffset)
+            }
+            if timingInfo[i].decodeTimeStamp.isValid {
+                timingInfo[i].decodeTimeStamp = CMTimeAdd(
+                    timingInfo[i].decodeTimeStamp, videoPTSOffset)
+            }
+            if !timingInfo[i].duration.isValid || timingInfo[i].duration == .zero {
+                timingInfo[i].duration = defaultDuration
+            }
+        }
+        var out: CMSampleBuffer?
+        CMSampleBufferCreateCopyWithNewTiming(
+            allocator: nil, sampleBuffer: sampleBuffer, sampleTimingEntryCount: count,
+            sampleTimingArray: &timingInfo, sampleBufferOut: &out)
+        return out ?? sampleBuffer
+    }
+
     private func appendVideoSample(
         _ sampleBuffer: CMSampleBuffer, writer: AVAssetWriter, videoInput: AVAssetWriterInput
     ) {
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        if !loggedFirstVideoBuffer, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+        let adjustedSample = adjustVideoSample(sampleBuffer)
+        let pts = CMSampleBufferGetPresentationTimeStamp(adjustedSample)
+        
+        if pts < sessionStartPTS {
+            Log.info(
+                "ReplayWriter.appendVideo dropping frame before session start. PTS:", pts.seconds,
+                "start:", sessionStartPTS.seconds)
+            return
+        }
+
+        if !loggedFirstVideoBuffer, let pixelBuffer = CMSampleBufferGetImageBuffer(adjustedSample) {
             let bufferWidth = CVPixelBufferGetWidth(pixelBuffer)
             let bufferHeight = CVPixelBufferGetHeight(pixelBuffer)
             let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
@@ -524,22 +564,22 @@ final class ReplayWriter: @unchecked Sendable {
 
         if videoInput.isReadyForMoreMediaData {
             if configuredVideoMode == .passthrough {
-                if !videoInput.append(sampleBuffer) {
+                if !videoInput.append(adjustedSample) {
                     logAppendFailure(
                         label: "ReplayWriter.appendVideo passthrough append failed",
                         writer: writer,
                         videoInput: videoInput,
-                        sampleBuffer: sampleBuffer
+                        sampleBuffer: adjustedSample
                     )
                     acceptsMediaData = false
                 }
             } else {
                 guard let adaptor = videoAdaptor,
-                    let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+                    let pixelBuffer = CMSampleBufferGetImageBuffer(adjustedSample)
                 else {
                     if missingAdaptorDrops < Constants.missingAdaptorLogLimit {
                         let adaptorMissing = videoAdaptor == nil
-                        let pixelMissing = CMSampleBufferGetImageBuffer(sampleBuffer) == nil
+                        let pixelMissing = CMSampleBufferGetImageBuffer(adjustedSample) == nil
                         Log.info(
                             "ReplayWriter.appendVideo adaptor missing; dropping frame. adaptorNil:",
                             adaptorMissing, "pixelBufferNil:", pixelMissing)
@@ -570,10 +610,10 @@ final class ReplayWriter: @unchecked Sendable {
 
                 if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
                     logAppendFailure(
-                        label: "ReplayWriter.appendVideo adaptor append failed",
+                        label: "ReplayWriter.appendVideo pixelBuffer append failed",
                         writer: writer,
                         videoInput: videoInput,
-                        sampleBuffer: sampleBuffer
+                        sampleBuffer: adjustedSample
                     )
                     acceptsMediaData = false
                 }
@@ -680,19 +720,19 @@ final class ReplayWriter: @unchecked Sendable {
     private func appendAdjustedAudioSample(
         _ sampleBuffer: CMSampleBuffer, to audioInput: AVAssetWriterInput, writer: AVAssetWriter
     ) -> Bool {
-        let adjusted = adjustAudioSampleIfNeeded(sampleBuffer)
-        if !audioInput.append(adjusted) {
+        let snappedSample = snapAudioSample(sampleBuffer)
+        if !audioInput.append(snappedSample) {
             logAudioAppendFailure(
                 label: "ReplayWriter.appendAudio append failed",
                 writer: writer,
                 audioInput: audioInput,
-                sampleBuffer: adjusted
+                sampleBuffer: snappedSample
             )
             acceptsMediaData = false
             return false
         }
-        let pts = CMSampleBufferGetPresentationTimeStamp(adjusted)
-        if let duration = audioDurationForSample(adjusted), duration.isValid, duration > .zero {
+        let pts = CMSampleBufferGetPresentationTimeStamp(snappedSample)
+        if let duration = audioDurationForSample(snappedSample), duration.isValid, duration > .zero {
             lastAudioEndPTS = CMTimeAdd(pts, duration)
         } else {
             lastAudioEndPTS = pts
@@ -700,57 +740,41 @@ final class ReplayWriter: @unchecked Sendable {
         return true
     }
 
-    private func adjustAudioSampleIfNeeded(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer {
-        guard audioPTSOffsetValid else { return sampleBuffer }
+    private func snapAudioSample(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer {
+        guard lastAudioEndPTS.isValid else { return sampleBuffer }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let baselinePTS = CMTimeSubtract(pts, audioPTSOffset)
-        guard let sampleDuration = audioDurationForSample(sampleBuffer),
-            sampleDuration.isValid,
-            sampleDuration > .zero
-        else { return sampleBuffer }
-
-        var timingInfoCount = 0
-        CMSampleBufferGetSampleTimingInfoArray(
-            sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &timingInfoCount)
-        guard timingInfoCount > 0 else { return sampleBuffer }
-        var timingInfo: [CMSampleTimingInfo] = Array(
-            repeating: CMSampleTimingInfo(
-                duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid),
-            count: timingInfoCount
-        )
-        CMSampleBufferGetSampleTimingInfoArray(
-            sampleBuffer, entryCount: timingInfoCount, arrayToFill: &timingInfo,
-            entriesNeededOut: &timingInfoCount)
-        let basePTS = timingInfo[0].presentationTimeStamp
-        let baseDTS = timingInfo[0].decodeTimeStamp
-        let expectedPTS = lastAudioEndPTS.isValid ? lastAudioEndPTS : baselinePTS
-        let delta = CMTimeSubtract(pts, expectedPTS)
-        if delta.isValid, CMTimeAbsoluteValue(delta) <= Constants.audioJitterTolerance {
+        let delta = CMTimeSubtract(pts, lastAudioEndPTS)
+        
+        if CMTimeAbsoluteValue(delta) < CMTime(value: 1, timescale: 100000) {
             return sampleBuffer
         }
-        let correctedFirstPTS = expectedPTS
-        for index in 0..<timingInfoCount {
-            let originalPTS = timingInfo[index].presentationTimeStamp
-            if originalPTS.isValid {
-                let delta = basePTS.isValid ? CMTimeSubtract(originalPTS, basePTS) : .zero
-                timingInfo[index].presentationTimeStamp = CMTimeAdd(correctedFirstPTS, delta)
+        
+        var count: CMItemCount = 0
+        CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+        guard count > 0 else { return sampleBuffer }
+        var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: count, arrayToFill: &timingInfo, entriesNeededOut: &count)
+        
+        let basePTS = timingInfo[0].presentationTimeStamp
+        let baseDTS = timingInfo[0].decodeTimeStamp
+        
+        for i in 0..<count {
+            if timingInfo[i].presentationTimeStamp.isValid {
+                let diff = basePTS.isValid ? CMTimeSubtract(timingInfo[i].presentationTimeStamp, basePTS) : .zero
+                timingInfo[i].presentationTimeStamp = CMTimeAdd(lastAudioEndPTS, diff)
             }
-            let originalDTS = timingInfo[index].decodeTimeStamp
-            if originalDTS.isValid {
-                let delta = baseDTS.isValid ? CMTimeSubtract(originalDTS, baseDTS) : .zero
-                timingInfo[index].decodeTimeStamp = CMTimeAdd(correctedFirstPTS, delta)
+            if timingInfo[i].decodeTimeStamp.isValid {
+                let diff = baseDTS.isValid ? CMTimeSubtract(timingInfo[i].decodeTimeStamp, baseDTS) : .zero
+                timingInfo[i].decodeTimeStamp = CMTimeAdd(lastAudioEndPTS, diff)
             }
         }
+        
         var newSample: CMSampleBuffer?
-        let status = CMSampleBufferCreateCopyWithNewTiming(
-            allocator: kCFAllocatorDefault,
-            sampleBuffer: sampleBuffer,
-            sampleTimingEntryCount: timingInfoCount,
-            sampleTimingArray: &timingInfo,
-            sampleBufferOut: &newSample)
-        guard status == noErr, let newSample else { return sampleBuffer }
-        return newSample
+        CMSampleBufferCreateCopyWithNewTiming(allocator: nil, sampleBuffer: sampleBuffer, sampleTimingEntryCount: count, sampleTimingArray: &timingInfo, sampleBufferOut: &newSample)
+        return newSample ?? sampleBuffer
     }
+
+
 
     private func fillAudioGapIfNeeded(
         gap: CMTime,
@@ -1020,41 +1044,31 @@ final class ReplayWriter: @unchecked Sendable {
             return
         }
 
-        let referencePTS = firstVideoPTS
+        let referencePTS: CMTime
+        if requiresAudioForSession {
+            var retainedAudioPTS = firstAudioPTS
+            let minCandidatePTS = CMTimeSubtract(firstVideoPTS, Constants.audioSyncTolerance)
+            for sample in pendingAudioSamples {
+                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+                if pts >= minCandidatePTS {
+                    retainedAudioPTS = pts
+                    break
+                }
+            }
+            referencePTS = retainedAudioPTS
+            videoPTSOffset = retainedAudioPTS.isValid ? CMTimeSubtract(retainedAudioPTS, firstVideoPTS) : .zero
+            audioPTSOffsetValid = true
+            Log.info("ReplayWriter: video PTS offset applied: \(videoPTSOffset.seconds * 1000) ms")
+        } else {
+            referencePTS = firstVideoPTS
+            videoPTSOffset = .zero
+            audioPTSOffsetValid = true
+        }
 
         sessionStartPTS = referencePTS
         writer.startSession(atSourceTime: referencePTS)
         sessionStarted = true
         audioBufferingEndPTS = CMTimeAdd(referencePTS, Constants.audioBufferingWindow)
-
-        if firstVideoPTS.isValid {
-            var firstRetainedAudioPTS = firstAudioPTS
-            let minCandidatePTS = CMTimeSubtract(referencePTS, Constants.audioSyncTolerance)
-            for sample in pendingAudioSamples {
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                if pts >= minCandidatePTS {
-                    firstRetainedAudioPTS = pts
-                    break
-                }
-            }
-
-            let rawOffset =
-                firstRetainedAudioPTS.isValid
-                ? CMTimeSubtract(firstRetainedAudioPTS, firstVideoPTS)
-                : .zero
-            let maxAdjustmentSeconds = Constants.maxAudioPTSAdjustment.seconds
-            let clampedSeconds = max(
-                -maxAdjustmentSeconds, min(rawOffset.seconds, maxAdjustmentSeconds))
-            audioPTSOffset = CMTime(seconds: clampedSeconds, preferredTimescale: 600)
-            audioPTSOffsetValid = true
-            Log.info(
-                "ReplayWriter: audio PTS offset raw/applied:",
-                rawOffset.seconds * 1000,
-                "/",
-                audioPTSOffset.seconds * 1000,
-                "ms"
-            )
-        }
 
         flushPendingVideoSamples(writer: writer, videoInput: videoInput)
         if let audioInput = audioInput {
