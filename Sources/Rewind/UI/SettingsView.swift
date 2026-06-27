@@ -121,7 +121,7 @@ private struct CaptureSettingsPane: View {
 				}
 				.pickerStyle(.menu)
 
-				Toggle("Use B-Frames (Experimental)", isOn: $appState.useBFrames)
+				Toggle("Use B-Frames", isOn: $appState.useBFrames)
 					.help("Improves quality at no file size cost, but may cause bugs.")
 			}
 			.disabled(settingsLocked)
