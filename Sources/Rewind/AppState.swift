@@ -279,7 +279,7 @@ final class AppState: ObservableObject {
 	@Published private(set) var lowStorageWarningMessage: String?
 
 	private let captureManager: CaptureManager
-	private let clipLibrary: ClipLibrary
+	let clipLibrary: ClipLibrary
 	private let discordRPCClient: DiscordRPCClient
 	private let hotkeyManager: GlobalHotkeyManager
 	private var replaySavedSound: NSSound?
