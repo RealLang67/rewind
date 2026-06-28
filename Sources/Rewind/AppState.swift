@@ -1,6 +1,7 @@
 import AppKit
 @preconcurrency import AVFoundation
 import SwiftUI
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -296,6 +297,7 @@ final class AppState: ObservableObject {
 	private var automaticCaptureRetryTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
+	private var cancellables = Set<AnyCancellable>()
 
 	init(
 		captureManager: CaptureManager = CaptureManager(),
@@ -307,6 +309,10 @@ final class AppState: ObservableObject {
 		self.clipLibrary = clipLibrary
 		self.discordRPCClient = discordRPCClient
 		self.hotkeyManager = hotkeyManager
+
+		clipLibrary.objectWillChange.sink { [weak self] _ in
+			self?.objectWillChange.send()
+		}.store(in: &cancellables)
 
 		permissionState = PermissionManager.currentState()
 		let settings = AppSettingsStorage.load()

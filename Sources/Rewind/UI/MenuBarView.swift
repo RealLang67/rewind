@@ -19,6 +19,26 @@ struct MenuBarView: View {
 
 		Divider()
 
+		Menu("Recent Clips") {
+			if appState.clipLibrary.clips.isEmpty {
+				Text("No clips yet")
+			} else {
+				ForEach(appState.clipLibrary.clips.prefix(5)) { clip in
+					Button(clip.createdAt.formatted()) {
+						NSApp.activate(ignoringOtherApps: true)
+						openWindow(id: "home")
+					}
+				}
+			}
+		}
+
+		Button("Open Home") {
+			NSApp.activate(ignoringOtherApps: true)
+			openWindow(id: "home")
+		}
+
+		Divider()
+
 		Menu("Replay Duration") {
 			ForEach(replayDurationOptions, id: \.self) { duration in
 				Toggle(

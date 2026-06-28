@@ -25,8 +25,32 @@ final class ClipLibrary: ObservableObject {
 		let exportedURL = try ensureExported(url: url)
 		var clip = Clip(url: exportedURL, duration: duration)
 		clip = try await store.save(clip: clip)
-		clips.append(clip)
+		clips.insert(clip, at: 0)
 		return clip
+	}
+
+	func toggleFavorite(clip: Clip) {
+		var updatedClip = clip
+		if updatedClip.isFavorite {
+			updatedClip.tags.removeAll { $0 == "favorite" }
+		} else {
+			updatedClip.tags.append("favorite")
+		}
+		
+		if let idx = clips.firstIndex(where: { $0.id == updatedClip.id }) {
+			clips[idx] = updatedClip
+		}
+
+		Task {
+			do {
+				_ = try await store.save(clip: updatedClip)
+			} catch {
+				AppLog.error(.library, "Unable to favorite clip:", error)
+				if let idx = clips.firstIndex(where: { $0.id == updatedClip.id }) {
+					clips[idx] = clip
+				}
+			}
+		}
 	}
 
 	private func load() async {
