@@ -67,7 +67,7 @@ struct MenuBarView: View {
 		Button("Show in Finder") {
 			showLastClipInFinder()
 		}
-		.disabled(appState.lastClip == nil)
+		.disabled(appState.lastClip == nil && appState.clipLibrary.clips.isEmpty)
 
 		if !appState.permissionState.screenRecording {
 			Divider()
@@ -145,7 +145,7 @@ struct MenuBarView: View {
 	}
 
 	private func showLastClipInFinder() {
-		guard let clip = appState.lastClip else { return }
+		guard let clip = appState.lastClip ?? appState.clipLibrary.clips.first else { return }
 
 		let scriptSource = """
 		tell application "Finder"
