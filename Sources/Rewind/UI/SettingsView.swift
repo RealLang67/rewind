@@ -465,8 +465,8 @@ private struct HelpLabel: View {
 				}
 				.popover(isPresented: $isHovering, arrowEdge: .top) {
 					Text(help)
-						.frame(maxWidth: 250)
-						.fixedSize(horizontal: false, vertical: true)
+						.lineLimit(nil)
+						.frame(width: 220, alignment: .leading)
 						.padding(10)
 				}
 		}
