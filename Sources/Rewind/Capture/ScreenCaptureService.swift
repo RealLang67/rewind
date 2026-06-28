@@ -163,7 +163,9 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		config.scalesToFit = (config.width != nativeWidth) || (config.height != nativeHeight)
 		config.queueDepth = 5
 		config.pixelFormat = capturePixelFormat(for: quality)
-		config.colorSpaceName = CGColorSpace.sRGB
+		if #available(macOS 14.0, *) {
+			config.colorSpaceName = CGColorSpace.sRGB
+		}
 		config.capturesAudio = true
 		// user controlled
 		let clampedFrameRate = max(30, min(frameRate, 60))
