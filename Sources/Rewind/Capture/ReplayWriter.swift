@@ -232,7 +232,7 @@ final class ReplayWriter: @unchecked Sendable {
         // different source format here breaks the zero-copy path and forces a per-frame
         // color conversion on the writer queue, causing encoder backpressure and stutter.
         _ = quality
-        return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
     }
 
     private func videoCompressionProperties(

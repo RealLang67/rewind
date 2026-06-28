@@ -201,7 +201,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
 	private func capturePixelFormat(for quality: QualityPreset) -> OSType {
 		_ = quality
-		return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+		return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 	}
 
 	func stopCapture() async {
