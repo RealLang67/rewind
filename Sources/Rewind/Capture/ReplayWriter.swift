@@ -267,9 +267,11 @@ final class ReplayWriter: @unchecked Sendable {
             || ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
 
         if !isTesting {
-            props[kVTCompressionPropertyKey_DataRateLimits as String] = [
-                (maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds,
-            ]
+            if #available(macOS 14.0, *) {
+                props[kVTCompressionPropertyKey_DataRateLimits as String] = [
+                    (maxBitrate / 8) * burstWindowSeconds, burstWindowSeconds,
+                ]
+            }
         }
 
         return props
