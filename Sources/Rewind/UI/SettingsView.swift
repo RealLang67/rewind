@@ -200,17 +200,15 @@ private struct HotkeysSettingsPane: View {
 				PermissionNoticeRow()
 			}
 
-			Section("Shortcuts") {
+			Section {
 				HotkeyRecorderRow(title: "Start/Stop recording", hotkey: $appState.startRecordingHotkey)
 				HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+			} header: {
+				Text("Shortcuts")
+			} footer: {
+				Text("Press Escape to cancel recording. Shortcuts must include at least one modifier key.")
 			}
 			.disabled(settingsLocked)
-
-			Section {
-				Text("Press Escape to cancel recording. Shortcuts must include at least one modifier key.")
-					.font(.footnote)
-					.foregroundStyle(.secondary)
-			}
 		}
 		.formStyle(.grouped)
 	}
