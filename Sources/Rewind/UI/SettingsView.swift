@@ -25,6 +25,9 @@ struct SettingsView: View {
 			IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
+			UploadSettingsPane(appState: appState, settingsLocked: settingsLocked)
+				.tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
+
 			AboutSettingsPane(appState: appState, updaterController: updaterController)
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
@@ -365,6 +368,34 @@ private struct IntegrationsSettingsPane: View {
 				Toggle(isOn: $appState.discordRPCEnabled) {
 					HelpLabel("Enable Discord RPC", help: "Shows your recording status on your Discord profile.")
 				}
+			}
+			.disabled(settingsLocked)
+		}
+		.formStyle(.grouped)
+	}
+}
+
+private struct UploadSettingsPane: View {
+	@ObservedObject var appState: AppState
+	let settingsLocked: Bool
+
+	var body: some View {
+		Form {
+			if settingsLocked {
+				PermissionNoticeRow()
+			}
+
+			Section {
+				Toggle(isOn: $appState.catboxEnabled) {
+					HelpLabel("Catbox.moe", help: "Enable uploading clips to Catbox.moe (permanent).")
+				}
+				Toggle(isOn: $appState.litterboxEnabled) {
+					HelpLabel("Litterbox", help: "Enable uploading clips to Litterbox (expiration configurable on upload).")
+				}
+			} header: {
+				Text("Providers")
+			} footer: {
+				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
 			.disabled(settingsLocked)
 		}

@@ -31,6 +31,8 @@ struct AppSettings: Codable {
 	var discordRPCEnabled: Bool
 	var useBFrames: Bool
 	var fileLoggingEnabled: Bool
+	var catboxEnabled: Bool
+	var litterboxEnabled: Bool
 
 	static let `default` = AppSettings(
 		replayDuration: 30,
@@ -56,7 +58,9 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID: FeedbackSound.defaultError.id,
 		discordRPCEnabled: true,
 		useBFrames: true,
-		fileLoggingEnabled: false
+		fileLoggingEnabled: false,
+		catboxEnabled: false,
+		litterboxEnabled: false
 	)
 
 	private enum CodingKeys: String, CodingKey {
@@ -84,6 +88,8 @@ struct AppSettings: Codable {
 		case discordRPCEnabled
 		case useBFrames
 		case fileLoggingEnabled
+		case catboxEnabled
+		case litterboxEnabled
 	}
 
 	init(
@@ -110,7 +116,9 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID: String,
 		discordRPCEnabled: Bool,
 		useBFrames: Bool,
-		fileLoggingEnabled: Bool
+		fileLoggingEnabled: Bool,
+		catboxEnabled: Bool,
+		litterboxEnabled: Bool
 	) {
 		self.replayDuration = replayDuration
 		self.resolutionID = resolutionID
@@ -136,6 +144,8 @@ struct AppSettings: Codable {
 		self.discordRPCEnabled = discordRPCEnabled
 		self.useBFrames = useBFrames
 		self.fileLoggingEnabled = fileLoggingEnabled
+		self.catboxEnabled = catboxEnabled
+		self.litterboxEnabled = litterboxEnabled
 	}
 
 	init(from decoder: Decoder) throws {
@@ -173,6 +183,8 @@ struct AppSettings: Codable {
 		discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
 		useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
+		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
+		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
 	}
 
 	var qualityPreset: QualityPreset {

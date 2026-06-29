@@ -59,7 +59,7 @@ struct HomeView: View {
 			.frame(minWidth: 300)
 		} detail: {
 			if let clip = selectedClip {
-				TrimEditorView(clip: clip)
+				TrimEditorView(clip: clip, appState: appState)
 					.id(clip.id)
 			} else {
 				Text("Select a clip to view and edit.")
@@ -130,8 +130,17 @@ struct ClipCard: View {
 
 struct TrimEditorView: View {
 	let clip: Clip
+	@ObservedObject var appState: AppState
+	@Environment(\.openWindow) private var openWindow
 	@State private var playerView = AVPlayerView()
 	@State private var isUploading = false
+	@State private var uploadSuccess = false
+	@State private var isTrimming = false
+	@AppStorage("litterboxExpiration") private var litterboxExpiration = "72h"
+	@State private var uploadTask: URLSessionUploadTask?
+	@State private var uploadProgressObs: NSKeyValueObservation?
+	@State private var uploadProgress: Double = 0.0
+	@State private var showProgressPopover = false
 
 	var body: some View {
 		VStack {
@@ -141,16 +150,90 @@ struct TrimEditorView: View {
 			ToolbarItem {
 				Button("Trim") {
 					if playerView.canBeginTrimming {
-						playerView.beginTrimming { _ in
+						playerView.beginTrimming { result in
+							if result == .okButton {
+								Task { @MainActor in
+									saveTrimmedClip()
+								}
+							}
 						}
 					}
 				}
+				.disabled(isTrimming)
 			}
 			ToolbarItem {
-				Button(isUploading ? "Uploading..." : "Upload to Cloud") {
-					uploadClip(clip.url)
+				HStack {
+					Menu {
+						if appState.catboxEnabled {
+							Button("Upload to Catbox.moe") {
+								uploadClip(clip.url, provider: "catbox")
+							}
+						}
+						
+						if appState.litterboxEnabled {
+							Menu("Upload to Litterbox") {
+								Picker("Expiration", selection: $litterboxExpiration) {
+									Text("1 Hour").tag("1h")
+									Text("12 Hours").tag("12h")
+									Text("24 Hours").tag("24h")
+									Text("72 Hours").tag("72h")
+								}
+								Button("Upload") {
+									uploadClip(clip.url, provider: "litterbox")
+								}
+							}
+						}
+						
+						if !appState.catboxEnabled && !appState.litterboxEnabled {
+							if #available(macOS 14.0, *) {
+								SettingsLink {
+									Text("Open Settings")
+								}
+							} else {
+								Button("Open Settings") {
+									NSApp.activate(ignoringOtherApps: true)
+									openWindow(id: "settings-fallback")
+								}
+							}
+						}
+					} label: {
+						Label("Copy link", systemImage: "link")
+					}
+					.disabled(isUploading)
+					.popover(isPresented: $showProgressPopover, arrowEdge: .bottom) {
+						VStack(spacing: 16) {
+							if uploadSuccess {
+								Image(systemName: "checkmark.circle.fill")
+									.resizable()
+									.frame(width: 32, height: 32)
+									.foregroundStyle(.green)
+								Text("Upload Successful!")
+									.font(.headline)
+								Text("Link copied to clipboard.")
+									.font(.subheadline)
+									.foregroundStyle(.secondary)
+							} else {
+								Text("Uploading...")
+									.font(.headline)
+								ProgressView(value: uploadProgress)
+									.progressViewStyle(.linear)
+								HStack {
+									Text("\(Int(uploadProgress * 100))%")
+										.font(.caption)
+										.foregroundStyle(.secondary)
+									Spacer()
+									Button("Cancel") {
+										uploadTask?.cancel()
+										isUploading = false
+										showProgressPopover = false
+									}
+								}
+							}
+						}
+						.padding()
+						.frame(width: 250)
+					}
 				}
-				.disabled(isUploading)
 			}
 		}
 		.onAppear {
@@ -160,10 +243,57 @@ struct TrimEditorView: View {
 		}
 	}
 
-	private func uploadClip(_ url: URL) {
-		isUploading = true
+	private func saveTrimmedClip() {
+		guard let currentItem = playerView.player?.currentItem else { return }
+		let asset = currentItem.asset
+		
+		var start = currentItem.reversePlaybackEndTime
+		var end = currentItem.forwardPlaybackEndTime
+		
+		isTrimming = true
 		Task {
-			var request = URLRequest(url: URL(string: "https://litterbox.catbox.moe/resources/internals/api.php")!)
+			if !start.isValid { start = .zero }
+			if !end.isValid { 
+				end = (try? await asset.load(.duration)) ?? .zero
+			}
+			
+			let timeRange = CMTimeRange(start: start, end: end)
+			
+			guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else { 
+				isTrimming = false
+				return 
+			}
+			
+			let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(clip.url.pathExtension)
+			
+			exportSession.outputURL = tempURL
+			exportSession.outputFileType = clip.url.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
+			exportSession.timeRange = timeRange
+			
+			await exportSession.export()
+			if exportSession.status == .completed {
+				do {
+					try? FileManager.default.removeItem(at: clip.url)
+					try FileManager.default.moveItem(at: tempURL, to: clip.url)
+				} catch {
+					print("Error saving trimmed clip: \(error)")
+				}
+			}
+			isTrimming = false
+		}
+	}
+
+	private func uploadClip(_ url: URL, provider: String) {
+		isUploading = true
+		showProgressPopover = true
+		uploadProgress = 0.0
+		
+		Task {
+			let apiURL = provider == "catbox" 
+				? URL(string: "https://catbox.moe/user/api.php")!
+				: URL(string: "https://litterbox.catbox.moe/resources/internals/api.php")!
+				
+			var request = URLRequest(url: apiURL)
 			request.httpMethod = "POST"
 			let boundary = UUID().uuidString
 			request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -171,22 +301,69 @@ struct TrimEditorView: View {
 			var data = Data()
 			data.append("--\(boundary)\r\n".data(using: .utf8)!)
 			data.append("Content-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n".data(using: .utf8)!)
+			
+			if provider == "litterbox" {
+				data.append("--\(boundary)\r\n".data(using: .utf8)!)
+				data.append("Content-Disposition: form-data; name=\"time\"\r\n\r\n\(litterboxExpiration)\r\n".data(using: .utf8)!)
+			}
+			
+			let isMP4 = url.pathExtension.lowercased() == "mp4"
+			let filename = isMP4 ? "clip.mp4" : "clip.mov"
+			let contentType = isMP4 ? "video/mp4" : "video/quicktime"
+			
 			data.append("--\(boundary)\r\n".data(using: .utf8)!)
-			data.append("Content-Disposition: form-data; name=\"time\"\r\n\r\n72h\r\n".data(using: .utf8)!)
-			data.append("--\(boundary)\r\n".data(using: .utf8)!)
-			data.append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"clip.mov\"\r\n".data(using: .utf8)!)
-			data.append("Content-Type: video/quicktime\r\n\r\n".data(using: .utf8)!)
-			data.append(try! Data(contentsOf: url))
+			data.append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+			data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+			
+			guard let fileData = try? Data(contentsOf: url) else {
+				self.isUploading = false
+				self.showProgressPopover = false
+				return
+			}
+			data.append(fileData)
 			data.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-			do {
-				let (resData, _) = try await URLSession.shared.upload(for: request, from: data)
-				if let string = String(data: resData, encoding: .utf8) {
-					NSPasteboard.general.clearContents()
-					NSPasteboard.general.setString(string, forType: .string)
+			let task = URLSession.shared.uploadTask(with: request, from: data) { resData, response, error in
+				DispatchQueue.main.async {
+					self.uploadProgressObs?.invalidate()
+					self.uploadProgressObs = nil
+					
+					if let error = error as NSError? {
+						if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+						} else {
+							print("Upload error: \(error)")
+						}
+						self.isUploading = false
+						self.showProgressPopover = false
+						return
+					}
+					
+					if let resData = resData, let string = String(data: resData, encoding: .utf8) {
+						NSPasteboard.general.clearContents()
+						NSPasteboard.general.setString(string, forType: .string)
+						self.uploadSuccess = true
+						Task {
+							try? await Task.sleep(nanoseconds: 2_500_000_000)
+							self.uploadSuccess = false
+							self.isUploading = false
+							self.showProgressPopover = false
+						}
+					} else {
+						self.isUploading = false
+						self.showProgressPopover = false
+					}
 				}
-			} catch {}
-			isUploading = false
+			}
+			
+			DispatchQueue.main.async {
+				self.uploadTask = task
+				self.uploadProgressObs = task.progress.observe(\.fractionCompleted) { progress, _ in
+					DispatchQueue.main.async {
+						self.uploadProgress = progress.fractionCompleted
+					}
+				}
+				task.resume()
+			}
 		}
 	}
 }
