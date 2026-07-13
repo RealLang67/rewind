@@ -19,7 +19,10 @@ let package = Package(
 			path: "Sources/Rewind",
 			linkerSettings: [
 				.linkedLibrary("sqlite3"),
-				.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
+				.unsafeFlags([
+					"-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+					"-Xlinker", "-rpath", "-Xlinker", "@executable_path",
+				]),
 			]
 		),
 		.testTarget(
