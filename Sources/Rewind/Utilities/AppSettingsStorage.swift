@@ -33,6 +33,7 @@ struct AppSettings: Codable {
 	var fileLoggingEnabled: Bool
 	var catboxEnabled: Bool
 	var litterboxEnabled: Bool
+	var recordMicrophoneEnabled: Bool
 
 	static let `default` = AppSettings(
 		replayDuration: 30,
@@ -60,7 +61,8 @@ struct AppSettings: Codable {
 		useBFrames: true,
 		fileLoggingEnabled: false,
 		catboxEnabled: false,
-		litterboxEnabled: false
+		litterboxEnabled: false,
+		recordMicrophoneEnabled: false
 	)
 
 	private enum CodingKeys: String, CodingKey {
@@ -90,6 +92,7 @@ struct AppSettings: Codable {
 		case fileLoggingEnabled
 		case catboxEnabled
 		case litterboxEnabled
+		case recordMicrophoneEnabled
 	}
 
 	init(
@@ -118,7 +121,8 @@ struct AppSettings: Codable {
 		useBFrames: Bool,
 		fileLoggingEnabled: Bool,
 		catboxEnabled: Bool,
-		litterboxEnabled: Bool
+		litterboxEnabled: Bool,
+		recordMicrophoneEnabled: Bool
 	) {
 		self.replayDuration = replayDuration
 		self.resolutionID = resolutionID
@@ -146,6 +150,7 @@ struct AppSettings: Codable {
 		self.fileLoggingEnabled = fileLoggingEnabled
 		self.catboxEnabled = catboxEnabled
 		self.litterboxEnabled = litterboxEnabled
+		self.recordMicrophoneEnabled = recordMicrophoneEnabled
 	}
 
 	init(from decoder: Decoder) throws {
@@ -185,6 +190,7 @@ struct AppSettings: Codable {
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
+		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
 	}
 
 	var qualityPreset: QualityPreset {

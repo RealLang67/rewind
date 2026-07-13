@@ -8,6 +8,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	private let callbackLock = NSLock()
 	private var _onVideoSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
+	private var _onMicSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onCaptureStopped: ((Error?) -> Void)?
 	private let stateLock = NSLock()
 	private var _loggedNonCompleteFrame = false
@@ -22,6 +23,11 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	var onAudioSampleBuffer: ((CMSampleBuffer) -> Void)? {
 		get { callbackLock.withLock { _onAudioSampleBuffer } }
 		set { callbackLock.withLock { _onAudioSampleBuffer = newValue } }
+	}
+
+	var onMicSampleBuffer: ((CMSampleBuffer) -> Void)? {
+		get { callbackLock.withLock { _onMicSampleBuffer } }
+		set { callbackLock.withLock { _onMicSampleBuffer = newValue } }
 	}
 
 	var onCaptureStopped: ((Error?) -> Void)? {
@@ -63,7 +69,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	func startCapture(
 		resolution: CaptureResolution? = nil,
 		quality: QualityPreset = .default,
-		frameRate: Int = CaptureFrameRate.default.framesPerSecond
+		frameRate: Int = CaptureFrameRate.default.framesPerSecond,
+		recordMicrophone: Bool = false
 	) async throws {
 		guard stream == nil else { return }
 
@@ -187,6 +194,10 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			config.scalesToFit
 		)
 
+				if #available(macOS 15.0, *) {
+			config.captureMicrophone = recordMicrophone
+		}
+
 		displaySize = outputSize
 		loggedFirstFrame = false
 
@@ -194,9 +205,16 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		try stream.addStreamOutput(
 			self, type: SCStreamOutputType.screen, sampleHandlerQueue: videoQueue
 		)
-		try stream.addStreamOutput(
+				try stream.addStreamOutput(
 			self, type: SCStreamOutputType.audio, sampleHandlerQueue: audioQueue
 		)
+		if #available(macOS 15.0, *) {
+			if recordMicrophone {
+				try stream.addStreamOutput(
+					self, type: SCStreamOutputType.microphone, sampleHandlerQueue: audioQueue
+				)
+			}
+		}
 		try await stream.startCapture()
 		self.stream = stream
 	}
@@ -246,7 +264,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			let audioCallback = onAudioSampleBuffer
 			audioCallback?(sampleBuffer)
 		case .microphone:
-			return
+			let micCallback = onMicSampleBuffer
+			micCallback?(sampleBuffer)
 		@unknown default:
 			return
 		}

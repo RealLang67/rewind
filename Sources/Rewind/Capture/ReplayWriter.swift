@@ -43,6 +43,7 @@ final class ReplayWriter: @unchecked Sendable {
     private var videoInput: AVAssetWriterInput?
     private var videoAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioInput: AVAssetWriterInput?
+    private var micInput: AVAssetWriterInput?
     private var outputURL: URL?
     private var configuredVideoSize: CGSize?
     private var configuredAudioSettings: [String: Any]?
@@ -50,6 +51,7 @@ final class ReplayWriter: @unchecked Sendable {
     private var configuredQuality: QualityPreset = .default
     private var configuredFrameRate = Constants.defaultFrameRate
     private var configuredUseBFrames = false
+    private var configuredRecordMicrophone = false
     private var includeAudio = false
     private var requiresAudioForSession = false
     private var sessionStarted = false
@@ -98,7 +100,8 @@ final class ReplayWriter: @unchecked Sendable {
         videoMode: VideoMode = .pixelBufferEncode,
         quality: QualityPreset = .default,
         frameRate: Int = Constants.defaultFrameRate,
-        useBFrames: Bool = false
+        useBFrames: Bool = false,
+        recordMicrophone: Bool = false
     ) throws {
         var configureError: Error?
         syncOnQueue {
@@ -111,7 +114,8 @@ final class ReplayWriter: @unchecked Sendable {
                     videoMode: videoMode,
                     quality: quality,
                     frameRate: frameRate,
-                    useBFrames: useBFrames
+                    useBFrames: useBFrames,
+                    recordMicrophone: recordMicrophone
                 )
             } catch {
                 configureError = error
@@ -129,7 +133,8 @@ final class ReplayWriter: @unchecked Sendable {
         videoMode: VideoMode,
         quality: QualityPreset,
         frameRate: Int,
-        useBFrames: Bool
+        useBFrames: Bool,
+        recordMicrophone: Bool
     ) throws {
         guard outputURL.isFileURL else {
             throw CaptureError.exportFailed
@@ -195,12 +200,18 @@ final class ReplayWriter: @unchecked Sendable {
         writer.add(videoInput)
 
         var audioInput: AVAssetWriterInput?
+        var micAudio: AVAssetWriterInput? = nil
         if includeAudio {
             let primaryAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            if recordMicrophone {
+                micAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                micAudio?.expectsMediaDataInRealTime = true
+            }
             primaryAudio.expectsMediaDataInRealTime = true
             if writer.canAdd(primaryAudio) {
                 writer.add(primaryAudio)
                 audioInput = primaryAudio
+                if let micAudio = micAudio, writer.canAdd(micAudio) { writer.add(micAudio); micInput = micAudio }
             } else {
                 Log.info(
                     "ReplayWriter.configure: cannot add audio input with settings:",
@@ -212,6 +223,7 @@ final class ReplayWriter: @unchecked Sendable {
         self.videoInput = videoInput
         self.videoAdaptor = adaptor
         self.audioInput = audioInput
+        self.micInput = micAudio
         self.outputURL = outputURL
         self.configuredVideoSize = configuredSize
         self.configuredAudioSettings = audioSettings
@@ -219,6 +231,7 @@ final class ReplayWriter: @unchecked Sendable {
         self.configuredQuality = quality
         self.configuredFrameRate = frameRate
         self.configuredUseBFrames = useBFrames
+        self.configuredRecordMicrophone = recordMicrophone
         self.includeAudio = includeAudio
         self.requiresAudioForSession = includeAudio && audioInput != nil
 
@@ -440,7 +453,8 @@ final class ReplayWriter: @unchecked Sendable {
                 videoMode: desiredMode,
                 quality: configuredQuality,
                 frameRate: configuredFrameRate,
-                useBFrames: configuredUseBFrames
+                useBFrames: configuredUseBFrames,
+                recordMicrophone: configuredRecordMicrophone
             )
         } catch {
             logWriterError("ReplayWriter.appendVideo reconfigure failed", error)
@@ -475,7 +489,8 @@ final class ReplayWriter: @unchecked Sendable {
                 videoMode: configuredVideoMode,
                 quality: configuredQuality,
                 frameRate: configuredFrameRate,
-                useBFrames: configuredUseBFrames
+                useBFrames: configuredUseBFrames,
+                recordMicrophone: configuredRecordMicrophone
             )
         } catch {
             logWriterError("ReplayWriter.appendVideo reconfigure failed", error)
@@ -633,6 +648,22 @@ final class ReplayWriter: @unchecked Sendable {
     }
 
     // - Append Audio ---
+
+    func appendMic(_ sampleBuffer: CMSampleBuffer) {
+        let buffer = UncheckedSendable(sampleBuffer)
+        onQueue { [weak self] in
+            guard let self = self else { return }
+            guard CMSampleBufferDataIsReady(buffer.value) else { return }
+            guard self.acceptsMediaData else { return }
+            guard let micInput = self.micInput else { return }
+            if self.writer?.status == .failed { self.acceptsMediaData = false; return }
+            if self.sessionStarted && self.writer?.status == .writing {
+                if micInput.isReadyForMoreMediaData {
+                    micInput.append(buffer.value)
+                }
+            }
+        }
+    }
 
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
         let buffer = UncheckedSendable(sampleBuffer)

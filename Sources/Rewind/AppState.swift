@@ -10,6 +10,10 @@ final class AppState: ObservableObject {
 		static let refreshIntervalNanos: UInt64 = 30 * 1_000_000_000
 	}
 
+	static let supportsMicrophoneCapture = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+		OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+	)
+
 	@Published private(set) var isCapturing = false
 	@Published var replayDuration: TimeInterval = 30 {
 		didSet {
@@ -267,6 +271,35 @@ final class AppState: ObservableObject {
 			persistSettings()
 		}
 	}
+	
+	@Published var recordMicrophoneEnabled = AppSettings.default.recordMicrophoneEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard recordMicrophoneEnabled != oldValue else { return }
+
+			if recordMicrophoneEnabled && !Self.supportsMicrophoneCapture {
+				recordMicrophoneEnabled = false
+				return
+			}
+
+			persistSettings()
+
+			if recordMicrophoneEnabled {
+				Task {
+					do {
+						try await PermissionManager.ensureMicrophoneAccess()
+						permissionState = PermissionManager.currentState()
+					} catch {
+						AppLog.error(.app, "Microphone access denied:", error)
+						recordMicrophoneEnabled = false
+					}
+					restartCaptureSilently()
+				}
+			} else {
+				restartCaptureSilently()
+			}
+		}
+	}
 
 	@Published var fileLoggingEnabled = AppSettings.default.fileLoggingEnabled {
 		didSet {
@@ -359,6 +392,7 @@ final class AppState: ObservableObject {
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
+		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		isRestoringSettings = false
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
@@ -471,7 +505,8 @@ final class AppState: ObservableObject {
 				quality: selectedQuality,
 				frameRate: selectedFrameRate.framesPerSecond,
 				audioCodec: selectedAudioCodec,
-				useBFrames: useBFrames
+				useBFrames: useBFrames,
+				recordMicrophoneEnabled: recordMicrophoneEnabled
 			)
 			isCapturing = true
 			updateDiscordActivity(.recording)
@@ -519,7 +554,8 @@ final class AppState: ObservableObject {
 					quality: selectedQuality,
 					frameRate: selectedFrameRate.framesPerSecond,
 					audioCodec: selectedAudioCodec,
-					useBFrames: useBFrames
+					useBFrames: useBFrames,
+					recordMicrophoneEnabled: recordMicrophoneEnabled
 				)
 			} catch {
 				isCapturing = false
@@ -760,7 +796,8 @@ final class AppState: ObservableObject {
 				useBFrames: useBFrames,
 				fileLoggingEnabled: fileLoggingEnabled,
 				catboxEnabled: catboxEnabled,
-				litterboxEnabled: litterboxEnabled
+				litterboxEnabled: litterboxEnabled,
+				recordMicrophoneEnabled: recordMicrophoneEnabled
 			)
 		)
 	}

@@ -105,6 +105,20 @@ private struct CaptureSettingsPane: View {
 				} label: {
 					HelpLabel("Always record", help: "Automatically saves clips continuously in the background.")
 				}
+
+				LabeledContent {
+					Toggle("", isOn: $appState.recordMicrophoneEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+						.disabled(!AppState.supportsMicrophoneCapture)
+				} label: {
+					HelpLabel(
+						"Record Microphone",
+						help: AppState.supportsMicrophoneCapture
+							? "Captures microphone audio. Requires microphone permissions."
+							: "Captures microphone audio. Requires macOS 15 or later."
+					)
+				}
 			}
 			.disabled(settingsLocked)
 

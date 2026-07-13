@@ -186,6 +186,8 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>d0qDhMh7Acak94tDqDkPiyYj9U01VMshN1MZo7T6uD4=</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Rewind needs screen capture access to record your screen.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Rewind needs microphone access to record microphone audio.</string>
 </dict>
 </plist>
 EOF

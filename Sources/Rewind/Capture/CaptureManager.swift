@@ -27,6 +27,7 @@ actor CaptureManager {
     private var currentFrameRate: Int = CaptureFrameRate.default.framesPerSecond
     private var currentAudioCodec: CaptureAudioCodec = .default
     private var useBFrames: Bool = false
+    private var recordMicrophoneEnabled: Bool = false
     private var onCaptureInterrupted: (@MainActor (Error) -> Void)?
 
     /// thread-safe reference to current writer for use in callbacks
@@ -68,18 +69,21 @@ actor CaptureManager {
         quality: QualityPreset = .default,
         frameRate: Int = CaptureFrameRate.default.framesPerSecond,
         audioCodec: CaptureAudioCodec = .default,
-        useBFrames: Bool = false
+        useBFrames: Bool = false,
+        recordMicrophoneEnabled: Bool = false
     ) async throws {
         guard !isRunning else { return }
         currentQuality = quality
         currentFrameRate = frameRate
         currentAudioCodec = audioCodec
         self.useBFrames = useBFrames
+        self.recordMicrophoneEnabled = recordMicrophoneEnabled
         do {
             try await screenCapture.startCapture(
                 resolution: resolution,
                 quality: quality,
-                frameRate: frameRate
+                frameRate: frameRate,
+                recordMicrophone: recordMicrophoneEnabled
             )
             try configureActiveWriter()
             currentWriter = activeWriter
@@ -88,6 +92,9 @@ actor CaptureManager {
             }
             screenCapture.onAudioSampleBuffer = { [weak self] sampleBuffer in
                 self?.currentWriter?.appendAudio(sampleBuffer)
+            }
+            screenCapture.onMicSampleBuffer = { [weak self] sampleBuffer in
+                self?.currentWriter?.appendMic(sampleBuffer)
             }
             isRunning = true
             prepareStandbyWriter()
@@ -164,7 +171,8 @@ actor CaptureManager {
             audioSettings: captureAudioSettings,
             quality: currentQuality,
             frameRate: currentFrameRate,
-            useBFrames: useBFrames
+            useBFrames: useBFrames,
+            recordMicrophone: recordMicrophoneEnabled
         )
     }
 
@@ -181,7 +189,8 @@ actor CaptureManager {
                 audioSettings: captureAudioSettings,
                 quality: currentQuality,
                 frameRate: currentFrameRate,
-                useBFrames: useBFrames
+                useBFrames: useBFrames,
+            recordMicrophone: recordMicrophoneEnabled
             )
             standbyWriter = writer
         } catch {
@@ -264,8 +273,7 @@ actor CaptureManager {
         let composition = AVMutableComposition()
         let videoTrack = composition.addMutableTrack(
             withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-        let audioTrack = composition.addMutableTrack(
-            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        var audioTracks: [AVMutableCompositionTrack] = []
 
         var cursor = CMTime.zero
         var appliedTransform = false
@@ -277,7 +285,15 @@ actor CaptureManager {
             var audioDuration = assetDuration
 
             let sourceVideo = try await asset.loadTracks(withMediaType: .video).first
-            let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
+            let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
+            
+            while audioTracks.count < sourceAudioTracks.count {
+                if let newTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                    audioTracks.append(newTrack)
+                } else {
+                    break
+                }
+            }
 
             if let sourceVideo, let videoTrack {
                 videoDuration = try await sourceVideo.load(.timeRange).duration
@@ -287,8 +303,8 @@ actor CaptureManager {
                     appliedTransform = true
                 }
             }
-            if let sourceAudio {
-                audioDuration = try await sourceAudio.load(.timeRange).duration
+            if let firstSourceAudio = sourceAudioTracks.first {
+                audioDuration = try await firstSourceAudio.load(.timeRange).duration
             }
             let minDuration = CMTimeMinimum(videoDuration, audioDuration)
             let segmentDuration =
@@ -297,8 +313,10 @@ actor CaptureManager {
             if let sourceVideo, let videoTrack {
                 try videoTrack.insertTimeRange(timeRange, of: sourceVideo, at: cursor)
             }
-            if let sourceAudio, let audioTrack {
-                try audioTrack.insertTimeRange(timeRange, of: sourceAudio, at: cursor)
+            for (index, sourceAudio) in sourceAudioTracks.enumerated() {
+                if index < audioTracks.count {
+                    try audioTracks[index].insertTimeRange(timeRange, of: sourceAudio, at: cursor)
+                }
             }
             if assetDuration.isValid, segmentDuration.isValid {
                 let delta = CMTimeSubtract(assetDuration, segmentDuration)
@@ -476,6 +494,7 @@ actor CaptureManager {
         rotationTask = nil
         screenCapture.onVideoSampleBuffer = nil
         screenCapture.onAudioSampleBuffer = nil
+        screenCapture.onMicSampleBuffer = nil
         currentWriter = nil
         await screenCapture.stopCapture()
         if let url = try? await activeWriter.finishWriting() {

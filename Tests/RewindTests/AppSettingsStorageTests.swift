@@ -41,6 +41,9 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(settings.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(settings.catboxEnabled, AppSettings.default.catboxEnabled)
+		XCTAssertEqual(settings.litterboxEnabled, AppSettings.default.litterboxEnabled)
+		XCTAssertEqual(settings.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testSaveThenLoadPersistsValues() {
@@ -68,7 +71,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackSoundID: FeedbackSound.pop.id,
 			discordRPCEnabled: false,
 			useBFrames: false,
-			fileLoggingEnabled: false
+			fileLoggingEnabled: false,
+			catboxEnabled: true,
+			litterboxEnabled: false,
+			recordMicrophoneEnabled: true
 		)
 
 		AppSettingsStorage.save(expected)
@@ -98,6 +104,9 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, expected.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
+		XCTAssertEqual(loaded.catboxEnabled, expected.catboxEnabled)
+		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
 	}
 
 	func testLoadClearsStoredValuesAndReturnsDefaultWhenStoredSettingsAreInvalid() throws {
@@ -125,7 +134,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackSoundID: "1234556789blahhhh",
 			discordRPCEnabled: false,
 			useBFrames: false,
-			fileLoggingEnabled: false
+			fileLoggingEnabled: false,
+			catboxEnabled: false,
+			litterboxEnabled: false,
+			recordMicrophoneEnabled: true
 		)
 		let data = try JSONEncoder().encode(invalid)
 		UserDefaults.standard.set(data, forKey: storageKey)
@@ -157,6 +169,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testLoadFallsBackToDefaultWhenStoredBlobIsInvalid() {
@@ -188,6 +201,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testSaveClearsStorageWhenSettingsAreInvalid() {
@@ -215,7 +229,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
 			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
 			useBFrames: AppSettings.default.useBFrames,
-			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled
+			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			catboxEnabled: AppSettings.default.catboxEnabled,
+			litterboxEnabled: AppSettings.default.litterboxEnabled,
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled
 		)
 
 		AppSettingsStorage.save(invalid)
