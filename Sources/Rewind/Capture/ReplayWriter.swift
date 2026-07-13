@@ -1149,11 +1149,7 @@ final class ReplayWriter: @unchecked Sendable {
                 self.videoInput?.markAsFinished()
                 self.audioInput?.markAsFinished()
                 let writerBox = UncheckedSendable(writer)
-                writer.finishWriting { [weak self] in
-                    guard let self else {
-                        continuation.resume(throwing: CaptureError.writerUnavailable)
-                        return
-                    }
+                writer.finishWriting { [self] in
                     // dispatch back to our queue to safely access state
                     self.onQueue {
                         let writer = writerBox.value
