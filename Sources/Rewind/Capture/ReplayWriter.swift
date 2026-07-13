@@ -44,6 +44,15 @@ final class ReplayWriter: @unchecked Sendable {
     private var videoAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioInput: AVAssetWriterInput?
     private var micInput: AVAssetWriterInput?
+    private var loggedFirstMicBuffer = false
+    private var droppedNonLPCMMicLogged = false
+    private var micConverter: AVAudioConverter?
+    private var micConverterSourceFormat: AVAudioFormat?
+    private var micTargetFormat: AVAudioFormat?
+    private var micTargetFormatDescription: CMAudioFormatDescription?
+    private var pendingMicSamples: ArraySlice<CMSampleBuffer> = []
+    private var pendingMicDrops = 0
+    private var lastMicEndPTS = CMTime.invalid
     private var outputURL: URL?
     private var configuredVideoSize: CGSize?
     private var configuredAudioSettings: [String: Any]?
@@ -314,6 +323,8 @@ final class ReplayWriter: @unchecked Sendable {
         lastAudioEndPTS = CMTime.invalid
         loggedFirstVideoBuffer = false
         loggedFirstAudioBuffer = false
+        loggedFirstMicBuffer = false
+        droppedNonLPCMMicLogged = false
         loggedNoPixelBufferFormat = false
         missingAdaptorDrops = 0
         missingAudioInputLogged = false
@@ -323,10 +334,17 @@ final class ReplayWriter: @unchecked Sendable {
         videoBackpressureDrops = 0
         pendingAudioSamples.removeAll()
         pendingVideoSamples.removeAll()
+        pendingMicSamples.removeAll()
         pendingVideoDrops = 0
         pendingAudioDrops = 0
+        pendingMicDrops = 0
         firstAudioPTS = CMTime.invalid
         firstVideoPTS = CMTime.invalid
+        lastMicEndPTS = CMTime.invalid
+        micConverter = nil
+        micConverterSourceFormat = nil
+        micTargetFormat = nil
+        micTargetFormatDescription = nil
         if resetReconfigureCount {
             reconfigureCount = 0
         }
@@ -337,6 +355,7 @@ final class ReplayWriter: @unchecked Sendable {
         videoInput = nil
         videoAdaptor = nil
         audioInput = nil
+        micInput = nil
         outputURL = nil
         configuredVideoSize = nil
         configuredAudioSettings = nil
@@ -652,17 +671,276 @@ final class ReplayWriter: @unchecked Sendable {
     func appendMic(_ sampleBuffer: CMSampleBuffer) {
         let buffer = UncheckedSendable(sampleBuffer)
         onQueue { [weak self] in
-            guard let self = self else { return }
-            guard CMSampleBufferDataIsReady(buffer.value) else { return }
-            guard self.acceptsMediaData else { return }
-            guard let micInput = self.micInput else { return }
-            if self.writer?.status == .failed { self.acceptsMediaData = false; return }
-            if self.sessionStarted && self.writer?.status == .writing {
-                if micInput.isReadyForMoreMediaData {
-                    micInput.append(buffer.value)
-                }
-            }
+            self?.appendMicOnQueue(buffer.value)
         }
+    }
+
+    private func appendMicOnQueue(_ sampleBuffer: CMSampleBuffer) {
+        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        guard acceptsMediaData else { return }
+        guard let micInput = micInput, let writer = writer else { return }
+        if writer.status == .failed { acceptsMediaData = false; return }
+
+        logFirstMicBufferIfNeeded(sampleBuffer)
+
+        // The mic input carries encoder output settings (AAC/ALAC/LPCM), which
+        // require an uncompressed (LPCM) source buffer matching the encoder's
+        // expected layout. ScreenCaptureKit may deliver the mic in a mismatched
+        // format (channel count, sample rate, float vs int), so transcode every
+        // mic buffer before appending; appending a mismatched buffer raises an
+        // NSException that crashes the app.
+        guard let converted = convertMicToLPCM(sampleBuffer) else {
+            if !droppedNonLPCMMicLogged {
+                droppedNonLPCMMicLogged = true
+                let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
+                    .flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }?
+                    .mFormatID ?? 0
+                AppLog.info(
+                    .writer, "ReplayWriter.appendMic dropping mic buffer (conversion failed); fmt:", fmt)
+            }
+            return
+        }
+
+        // Buffer mic samples until the session starts so leading audio isn't lost.
+        guard sessionStarted, writer.status == .writing, sessionStartPTS.isValid else {
+            enqueuePendingMicSample(converted)
+            return
+        }
+
+        // Tight tolerance; samples before session start are rejected by the writer.
+        let pts = CMSampleBufferGetPresentationTimeStamp(converted)
+        if pts < CMTimeSubtract(sessionStartPTS, Constants.audioSyncTolerance) {
+            return
+        }
+
+        if !pendingMicSamples.isEmpty {
+            enqueuePendingMicSample(converted)
+            drainPendingMicWhileReady(micInput: micInput, writer: writer)
+            return
+        }
+
+        if micInput.isReadyForMoreMediaData {
+            _ = appendMicSample(converted, to: micInput, writer: writer)
+        } else {
+            enqueuePendingMicSample(converted)
+        }
+    }
+
+    private func logFirstMicBufferIfNeeded(_ sampleBuffer: CMSampleBuffer) {
+        guard !loggedFirstMicBuffer else { return }
+        loggedFirstMicBuffer = true
+        if let asbd = CMSampleBufferGetFormatDescription(sampleBuffer)
+            .flatMap({ CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee })
+        {
+            AppLog.info(
+                .writer,
+                "ReplayWriter.appendMic source ASBD:",
+                "sr:", asbd.mSampleRate,
+                "ch:", asbd.mChannelsPerFrame,
+                "fmt:", asbd.mFormatID,
+                "isLPCM:", asbd.mFormatID == kAudioFormatLinearPCM,
+                "flags:", asbd.mFormatFlags,
+                "bytesPerFrame:", asbd.mBytesPerFrame)
+        } else {
+            AppLog.info(.writer, "ReplayWriter.appendMic source format: unavailable")
+        }
+    }
+
+    private func enqueuePendingMicSample(_ sampleBuffer: CMSampleBuffer) {
+        if pendingMicSamples.count < Constants.maxPendingAudioSamples {
+            pendingMicSamples.append(sampleBuffer)
+        } else {
+            pendingMicDrops += 1
+            if pendingMicDrops == Constants.pendingAudioDropLogFirst
+                || pendingMicDrops % Constants.pendingAudioDropLogInterval == 0
+            {
+                Log.info("ReplayWriter.appendMic pending buffer full; drops:", pendingMicDrops)
+            }
+            pendingMicSamples.removeFirst()
+            pendingMicSamples.append(sampleBuffer)
+        }
+    }
+
+    private func drainPendingMicWhileReady(micInput: AVAssetWriterInput, writer: AVAssetWriter) {
+        guard writer.status == .writing, !pendingMicSamples.isEmpty else { return }
+        let minValidPTS = CMTimeSubtract(sessionStartPTS, Constants.audioSyncTolerance)
+        while let sample = pendingMicSamples.first, micInput.isReadyForMoreMediaData {
+            pendingMicSamples.removeFirst()
+            if CMSampleBufferGetPresentationTimeStamp(sample) < minValidPTS { continue }
+            if !appendMicSample(sample, to: micInput, writer: writer) { break }
+        }
+    }
+
+    private func appendMicSample(
+        _ sampleBuffer: CMSampleBuffer, to micInput: AVAssetWriterInput, writer: AVAssetWriter
+    ) -> Bool {
+        // Snap to a continuous timeline so resampled buffers don't accumulate drift.
+        let snapped = snapSample(sampleBuffer, relativeTo: lastMicEndPTS)
+        if !micInput.append(snapped) {
+            logAudioAppendFailure(
+                label: "ReplayWriter.appendMic append failed",
+                writer: writer,
+                audioInput: micInput,
+                sampleBuffer: snapped
+            )
+            acceptsMediaData = false
+            return false
+        }
+        let pts = CMSampleBufferGetPresentationTimeStamp(snapped)
+        if let duration = audioDurationForSample(snapped), duration.isValid, duration > .zero {
+            lastMicEndPTS = CMTimeAdd(pts, duration)
+        } else {
+            lastMicEndPTS = pts
+        }
+        return true
+    }
+
+    /// LPCM layout the mic encoder input expects, derived from the configured
+    /// audio settings. For a compressed encoder (AAC/ALAC) any LPCM layout is
+    /// accepted, so we use 48 kHz / stereo / Int16 interleaved; for an LPCM
+    /// encoder the appended buffer must match the output settings *exactly*
+    /// (bit depth, float vs int, interleaving, endianness), so we build the
+    /// format straight from those settings.
+    private func micTargetFormatIfNeeded() -> AVAudioFormat? {
+        if let format = micTargetFormat { return format }
+        let sampleRate =
+            (configuredAudioSettings?[AVSampleRateKey] as? Double)
+            ?? (configuredAudioSettings?[AVSampleRateKey] as? Int).map(Double.init)
+            ?? 48_000
+        let channels =
+            (configuredAudioSettings?[AVNumberOfChannelsKey] as? Int).map(UInt32.init) ?? 2
+        let formatID =
+            (configuredAudioSettings?[AVFormatIDKey] as? UInt32)
+            ?? (configuredAudioSettings?[AVFormatIDKey] as? Int).map(UInt32.init)
+
+        let format: AVAudioFormat?
+        if formatID == kAudioFormatLinearPCM, let settings = configuredAudioSettings {
+            format = AVAudioFormat(settings: settings)
+        } else {
+            format = AVAudioFormat(
+                commonFormat: .pcmFormatInt16, sampleRate: sampleRate,
+                channels: AVAudioChannelCount(max(channels, 1)), interleaved: true)
+        }
+        micTargetFormat = format
+        return format
+    }
+
+    /// Cached `CMAudioFormatDescription` for the (constant) mic target format,
+    /// so we don't recreate one on every converted buffer.
+    private func micTargetFormatDescriptionIfNeeded(for format: AVAudioFormat)
+        -> CMAudioFormatDescription?
+    {
+        if let description = micTargetFormatDescription { return description }
+        var asbd = format.streamDescription.pointee
+        var description: CMAudioFormatDescription?
+        guard
+            CMAudioFormatDescriptionCreate(
+                allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil,
+                magicCookieSize: 0, magicCookie: nil, extensions: nil,
+                formatDescriptionOut: &description) == noErr,
+            let description
+        else { return nil }
+        micTargetFormatDescription = description
+        return description
+    }
+
+    /// Transcodes a microphone sample buffer of any supported source format into
+    /// the LPCM layout the mic encoder input requires. Handles compressed input
+    /// (decode), channel up/down-mix, sample-rate conversion, and float↔int.
+    private func convertMicToLPCM(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
+        guard CMSampleBufferGetNumSamples(sampleBuffer) > 0,
+            let sourceDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+            let targetFormat = micTargetFormatIfNeeded()
+        else { return nil }
+        let sourceFormat = AVAudioFormat(cmAudioFormatDescription: sourceDesc)
+
+        // already exactly the target layout; append as-is
+        if sourceFormat.isEqual(targetFormat) { return sampleBuffer }
+
+        if micConverter == nil || !(micConverterSourceFormat?.isEqual(sourceFormat) ?? false) {
+            micConverter = AVAudioConverter(from: sourceFormat, to: targetFormat)
+            micConverterSourceFormat = sourceFormat
+        }
+        guard let converter = micConverter,
+            let inputBuffer = micInputBuffer(from: sampleBuffer, sourceFormat: sourceFormat)
+        else { return nil }
+
+        let sourceFrames = Double(max(CMSampleBufferGetNumSamples(sampleBuffer), 1))
+        let ratio = targetFormat.sampleRate / max(sourceFormat.sampleRate, 1)
+        let capacity = AVAudioFrameCount((sourceFrames * ratio).rounded(.up)) + 1_024
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity)
+        else { return nil }
+
+        var conversionError: NSError?
+        var suppliedInput = false
+        let status = converter.convert(to: outputBuffer, error: &conversionError) {
+            _, inputStatus in
+            if suppliedInput {
+                inputStatus.pointee = .noDataNow
+                return nil
+            }
+            suppliedInput = true
+            inputStatus.pointee = .haveData
+            return inputBuffer
+        }
+        guard status != .error, conversionError == nil, outputBuffer.frameLength > 0 else {
+            return nil
+        }
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        return lpcmSampleBuffer(from: outputBuffer, presentationTimeStamp: pts)
+    }
+
+    /// Wraps a mic sample buffer's LPCM payload into an `AVAudioPCMBuffer` for
+    /// converter input. ScreenCaptureKit delivers the microphone as LPCM;
+    /// compressed sources are unsupported (returns nil so the buffer is dropped
+    /// rather than fed to a mis-sized decode path).
+    private func micInputBuffer(from sampleBuffer: CMSampleBuffer, sourceFormat: AVAudioFormat)
+        -> AVAudioPCMBuffer?
+    {
+        guard sourceFormat.streamDescription.pointee.mFormatID == kAudioFormatLinearPCM else {
+            return nil
+        }
+        let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frames > 0,
+            let pcm = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frames)
+        else { return nil }
+        pcm.frameLength = frames
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer, at: 0, frameCount: Int32(frames), into: pcm.mutableAudioBufferList)
+        return status == noErr ? pcm : nil
+    }
+
+    /// Builds a timed `CMSampleBuffer` around a converted LPCM buffer, preserving
+    /// the source presentation timestamp so mic audio stays aligned.
+    private func lpcmSampleBuffer(
+        from pcmBuffer: AVAudioPCMBuffer, presentationTimeStamp pts: CMTime
+    ) -> CMSampleBuffer? {
+        guard let formatDescription = micTargetFormatDescriptionIfNeeded(for: pcmBuffer.format)
+        else { return nil }
+
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: CMTimeScale(pcmBuffer.format.sampleRate)),
+            presentationTimeStamp: pts, decodeTimeStamp: .invalid)
+        var sampleBuffer: CMSampleBuffer?
+        guard
+            CMSampleBufferCreate(
+                allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: false,
+                makeDataReadyCallback: nil, refcon: nil, formatDescription: formatDescription,
+                sampleCount: CMItemCount(pcmBuffer.frameLength), sampleTimingEntryCount: 1,
+                sampleTimingArray: &timing, sampleSizeEntryCount: 0, sampleSizeArray: nil,
+                sampleBufferOut: &sampleBuffer) == noErr,
+            let sampleBuffer
+        else { return nil }
+
+        guard
+            CMSampleBufferSetDataBufferFromAudioBufferList(
+                sampleBuffer, blockBufferAllocator: kCFAllocatorDefault,
+                blockBufferMemoryAllocator: kCFAllocatorDefault, flags: 0,
+                bufferList: pcmBuffer.audioBufferList) == noErr
+        else { return nil }
+
+        return sampleBuffer
     }
 
     func appendAudio(_ sampleBuffer: CMSampleBuffer) {
@@ -774,34 +1052,43 @@ final class ReplayWriter: @unchecked Sendable {
     }
 
     private func snapAudioSample(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer {
-        guard lastAudioEndPTS.isValid else { return sampleBuffer }
+        snapSample(sampleBuffer, relativeTo: lastAudioEndPTS)
+    }
+
+    /// Rewrites a sample's timing so it starts exactly at `endPTS`, removing the
+    /// small gaps/overlaps that otherwise accumulate as drift (e.g. after
+    /// sample-rate conversion). No-op when `endPTS` is invalid or already aligned.
+    private func snapSample(_ sampleBuffer: CMSampleBuffer, relativeTo endPTS: CMTime)
+        -> CMSampleBuffer
+    {
+        guard endPTS.isValid else { return sampleBuffer }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let delta = CMTimeSubtract(pts, lastAudioEndPTS)
-        
+        let delta = CMTimeSubtract(pts, endPTS)
+
         if CMTimeAbsoluteValue(delta) < CMTime(value: 1, timescale: 100000) {
             return sampleBuffer
         }
-        
+
         var count: CMItemCount = 0
         CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
         guard count > 0 else { return sampleBuffer }
         var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
         CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: count, arrayToFill: &timingInfo, entriesNeededOut: &count)
-        
+
         let basePTS = timingInfo[0].presentationTimeStamp
         let baseDTS = timingInfo[0].decodeTimeStamp
-        
+
         for i in 0..<count {
             if timingInfo[i].presentationTimeStamp.isValid {
                 let diff = basePTS.isValid ? CMTimeSubtract(timingInfo[i].presentationTimeStamp, basePTS) : .zero
-                timingInfo[i].presentationTimeStamp = CMTimeAdd(lastAudioEndPTS, diff)
+                timingInfo[i].presentationTimeStamp = CMTimeAdd(endPTS, diff)
             }
             if timingInfo[i].decodeTimeStamp.isValid {
                 let diff = baseDTS.isValid ? CMTimeSubtract(timingInfo[i].decodeTimeStamp, baseDTS) : .zero
-                timingInfo[i].decodeTimeStamp = CMTimeAdd(lastAudioEndPTS, diff)
+                timingInfo[i].decodeTimeStamp = CMTimeAdd(endPTS, diff)
             }
         }
-        
+
         var newSample: CMSampleBuffer?
         CMSampleBufferCreateCopyWithNewTiming(allocator: nil, sampleBuffer: sampleBuffer, sampleTimingEntryCount: count, sampleTimingArray: &timingInfo, sampleBufferOut: &newSample)
         return newSample ?? sampleBuffer
@@ -1148,6 +1435,7 @@ final class ReplayWriter: @unchecked Sendable {
                 self.acceptsMediaData = false
                 self.videoInput?.markAsFinished()
                 self.audioInput?.markAsFinished()
+                self.micInput?.markAsFinished()
                 let writerBox = UncheckedSendable(writer)
                 writer.finishWriting { [self] in
                     // dispatch back to our queue to safely access state
