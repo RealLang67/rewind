@@ -28,7 +28,12 @@ let package = Package(
 		.testTarget(
 			name: "RewindTests",
 			dependencies: ["Rewind"],
-			path: "Tests/RewindTests"
+			path: "Tests/RewindTests",
+			linkerSettings: [
+				.unsafeFlags([
+					"-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../..",
+				]),
+			]
 		),
 	]
 )
