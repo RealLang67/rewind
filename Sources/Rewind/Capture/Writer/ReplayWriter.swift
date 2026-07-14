@@ -1,0 +1,316 @@
+@preconcurrency import AVFoundation
+import CoreGraphics
+
+/// Encodes captured video/audio/mic sample buffers into a single `.mov` segment
+/// via `AVAssetWriter`. All state is confined to a single serial queue; the
+/// public `append*` entry points hop onto it, and the pipeline is split across
+/// `ReplayWriter+Video`, `+Audio`, and `+Session`.
+final class ReplayWriter: @unchecked Sendable {
+    enum VideoMode {
+        case pixelBufferEncode
+        case passthrough
+    }
+
+    enum Constants {
+        static let maxPendingAudioSamples = 240
+        static let maxPendingVideoSamples = 120
+        static let audioJitterTolerance = CMTime(seconds: 0.005, preferredTimescale: 1_000)
+        static let maxAudioPTSAdjustment = CMTime(seconds: 0.25, preferredTimescale: 600)
+        static let audioBufferingWindow = CMTime(seconds: 0.20, preferredTimescale: 600)
+        static let audioSyncTolerance = CMTime(seconds: 0.02, preferredTimescale: 48_000)
+        static let videoSyncTolerance = CMTime(seconds: 0.02, preferredTimescale: 600)
+        static let audioGapThreshold = CMTime(seconds: 0.04, preferredTimescale: 1_000)
+        static let maxGapSeconds: Double = 0.5
+        static let silenceChunkSeconds: Double = 0.1
+        static let backpressureLogInterval = 30
+        static let pendingVideoDropLogInterval = 60
+        static let pendingAudioDropLogInterval = 50
+        static let missingAdaptorLogLimit = 1
+        static let finishWritingTimeout: TimeInterval = 10.0
+        static let defaultFrameRate = 60
+    }
+
+    // - Queue ---
+
+    let queue: DispatchQueue
+    let queueKey = DispatchSpecificKey<Void>()
+
+    // - Writer ---
+
+    var writer: AVAssetWriter?
+    var videoInput: AVAssetWriterInput?
+    var videoAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    var audioInput: AVAssetWriterInput?
+    var micInput: AVAssetWriterInput?
+    var micConverter: MicrophoneConverter?
+    var outputURL: URL?
+
+    // - Configuration ---
+
+    var configuredVideoSize: CGSize?
+    var configuredAudioSettings: [String: Any]?
+    var configuredVideoMode: VideoMode = .pixelBufferEncode
+    var configuredQuality: QualityPreset = .default
+    var configuredFrameRate = Constants.defaultFrameRate
+    var configuredUseBFrames = false
+    var configuredRecordMicrophone = false
+    var includeAudio = false
+    var requiresAudioForSession = false
+
+    // - Session ---
+
+    var acceptsMediaData = false
+    var sessionStarted = false
+    var sessionStartPTS = CMTime.invalid
+    var videoPTSOffset = CMTime.zero
+    var audioPTSOffsetValid = false
+    var audioBufferingEndPTS = CMTime.invalid
+    var lastVideoPTS = CMTime.invalid
+    var lastAudioEndPTS = CMTime.invalid
+    var lastMicEndPTS = CMTime.invalid
+    var reconfigureCount = 0
+
+    /// First seen PTS on each stream, used to align audio and video at session start.
+    var firstAudioPTS = CMTime.invalid
+    var firstVideoPTS = CMTime.invalid
+
+    // - Pending buffers ---
+
+    /// Buffered until the writer session starts (or an input becomes ready) so
+    /// leading samples aren't lost.
+    var pendingVideo = PendingSampleQueue(
+        capacity: Constants.maxPendingVideoSamples, label: "ReplayWriter.appendVideo",
+        logInterval: Constants.pendingVideoDropLogInterval)
+    var pendingAudio = PendingSampleQueue(
+        capacity: Constants.maxPendingAudioSamples, label: "ReplayWriter.appendAudio",
+        logInterval: Constants.pendingAudioDropLogInterval)
+    var pendingMic = PendingSampleQueue(
+        capacity: Constants.maxPendingAudioSamples, label: "ReplayWriter.appendMic",
+        logInterval: Constants.pendingAudioDropLogInterval)
+
+    // - Audio format ---
+
+    var audioSampleRate: Double?
+    var audioFormatDescription: CMAudioFormatDescription?
+    var audioASBD: AudioStreamBasicDescription?
+
+    // - One-shot log guards ---
+
+    var loggedFirstVideoBuffer = false
+    var loggedFirstAudioBuffer = false
+    var loggedFirstMicBuffer = false
+    var droppedNonLPCMMicLogged = false
+    var loggedNoPixelBufferFormat = false
+    var missingAdaptorDrops = 0
+    var missingAudioInputLogged = false
+    var videoBackpressureDrops = 0
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+        self.queue.setSpecific(key: queueKey, value: ())
+    }
+
+    // - Configuration ---
+
+    func configure(
+        outputURL: URL,
+        videoSize: CGSize,
+        includeAudio: Bool,
+        audioSettings: [String: Any]?,
+        videoMode: VideoMode = .pixelBufferEncode,
+        quality: QualityPreset = .default,
+        frameRate: Int = Constants.defaultFrameRate,
+        useBFrames: Bool = false,
+        recordMicrophone: Bool = false
+    ) throws {
+        var configureError: Error?
+        syncOnQueue {
+            do {
+                try configureOnQueue(
+                    outputURL: outputURL,
+                    videoSize: videoSize,
+                    includeAudio: includeAudio,
+                    audioSettings: audioSettings,
+                    videoMode: videoMode,
+                    quality: quality,
+                    frameRate: frameRate,
+                    useBFrames: useBFrames,
+                    recordMicrophone: recordMicrophone
+                )
+            } catch {
+                configureError = error
+            }
+        }
+
+        if let configureError { throw configureError }
+    }
+
+    func configureOnQueue(
+        outputURL: URL,
+        videoSize: CGSize,
+        includeAudio: Bool,
+        audioSettings: [String: Any]?,
+        videoMode: VideoMode,
+        quality: QualityPreset,
+        frameRate: Int,
+        useBFrames: Bool,
+        recordMicrophone: Bool
+    ) throws {
+        guard outputURL.isFileURL else {
+            throw CaptureError.exportFailed
+        }
+        let folder = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        let videoInput: AVAssetWriterInput
+        let adaptor: AVAssetWriterInputPixelBufferAdaptor?
+        var configuredSize: CGSize?
+        if videoMode == .pixelBufferEncode {
+            let width = Int(videoSize.width.rounded())
+            let height = Int(videoSize.height.rounded())
+            AppLog.debug(.writer, "ReplayWriter.configure video size:", width, "x", height)
+            configuredSize = CGSize(width: width, height: height)
+
+            let estimatedBitrate = VideoEncoderSettings.targetBitrateMbps(
+                for: quality, videoSize: CGSize(width: width, height: height), frameRate: frameRate)
+            AppLog.debug(
+                .writer, "ReplayWriter.configure codec: HEVC, preset:", quality.label,
+                "target bitrate:", String(format: "%.1f", estimatedBitrate), "Mbps")
+
+            let videoSettings = VideoEncoderSettings.outputSettings(
+                quality: quality, width: width, height: height, frameRate: frameRate,
+                useBFrames: useBFrames)
+            videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+
+            let adaptorAttrs: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: Int(
+                    VideoEncoderSettings.sourcePixelFormat(for: quality)),
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            ]
+            adaptor = AVAssetWriterInputPixelBufferAdaptor(
+                assetWriterInput: videoInput, sourcePixelBufferAttributes: adaptorAttrs)
+        } else {
+            AppLog.debug(.writer, "ReplayWriter.configure video mode: passthrough")
+            videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: nil)
+            adaptor = nil
+            configuredSize = nil
+        }
+        videoInput.expectsMediaDataInRealTime = true
+        guard writer.canAdd(videoInput) else {
+            throw CaptureError.exportFailed
+        }
+        writer.add(videoInput)
+
+        var audioInput: AVAssetWriterInput?
+        var micAudio: AVAssetWriterInput?
+        if includeAudio {
+            let primaryAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            if recordMicrophone {
+                micAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                micAudio?.expectsMediaDataInRealTime = true
+            }
+            primaryAudio.expectsMediaDataInRealTime = true
+            if writer.canAdd(primaryAudio) {
+                writer.add(primaryAudio)
+                audioInput = primaryAudio
+                if let micAudio, writer.canAdd(micAudio) { writer.add(micAudio) }
+            } else {
+                AppLog.debug(
+                    .writer, "ReplayWriter.configure: cannot add audio input with settings:",
+                    audioSettings ?? [:])
+                micAudio = nil
+            }
+        }
+
+        self.writer = writer
+        self.videoInput = videoInput
+        self.videoAdaptor = adaptor
+        self.audioInput = audioInput
+        self.micInput = micAudio
+        self.outputURL = outputURL
+        self.configuredVideoSize = configuredSize
+        self.configuredAudioSettings = audioSettings
+        self.configuredVideoMode = videoMode
+        self.configuredQuality = quality
+        self.configuredFrameRate = frameRate
+        self.configuredUseBFrames = useBFrames
+        self.configuredRecordMicrophone = recordMicrophone
+        self.includeAudio = includeAudio
+        self.requiresAudioForSession = includeAudio && audioInput != nil
+
+        resetRuntimeState(resetReconfigureCount: true)
+        micConverter = micAudio != nil ? MicrophoneConverter(audioSettings: audioSettings) : nil
+        acceptsMediaData = true
+    }
+
+    func resetRuntimeState(resetReconfigureCount: Bool) {
+        acceptsMediaData = false
+        sessionStarted = false
+        sessionStartPTS = CMTime.invalid
+        videoPTSOffset = .zero
+        audioPTSOffsetValid = false
+        audioBufferingEndPTS = CMTime.invalid
+        lastVideoPTS = CMTime.invalid
+        lastAudioEndPTS = CMTime.invalid
+        lastMicEndPTS = CMTime.invalid
+        loggedFirstVideoBuffer = false
+        loggedFirstAudioBuffer = false
+        loggedFirstMicBuffer = false
+        droppedNonLPCMMicLogged = false
+        loggedNoPixelBufferFormat = false
+        missingAdaptorDrops = 0
+        missingAudioInputLogged = false
+        audioSampleRate = nil
+        audioFormatDescription = nil
+        audioASBD = nil
+        videoBackpressureDrops = 0
+        pendingVideo.removeAll()
+        pendingAudio.removeAll()
+        pendingMic.removeAll()
+        firstAudioPTS = CMTime.invalid
+        firstVideoPTS = CMTime.invalid
+        if resetReconfigureCount {
+            reconfigureCount = 0
+        }
+    }
+
+    func resetState() {
+        writer = nil
+        videoInput = nil
+        videoAdaptor = nil
+        audioInput = nil
+        micInput = nil
+        micConverter = nil
+        outputURL = nil
+        configuredVideoSize = nil
+        configuredAudioSettings = nil
+        configuredVideoMode = .pixelBufferEncode
+        configuredQuality = .default
+        configuredFrameRate = Constants.defaultFrameRate
+        includeAudio = false
+        requiresAudioForSession = false
+        resetRuntimeState(resetReconfigureCount: false)
+    }
+
+    // - Queue helpers ---
+
+    func onQueue(_ block: @escaping @Sendable () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            block()
+        } else {
+            queue.async(execute: block)
+        }
+    }
+
+    func syncOnQueue(_ block: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            block()
+        } else {
+            queue.sync(execute: block)
+        }
+    }
+}
