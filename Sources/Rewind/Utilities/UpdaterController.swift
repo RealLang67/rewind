@@ -31,9 +31,9 @@ final class UpdaterController: NSObject, ObservableObject, SPUUpdaterDelegate {
 			do {
 				try process.run()
 				process.waitUntilExit()
-				print("Reset TCC permissions for \(bundleID).")
+				AppLog.info(.app, "Reset TCC permissions for", bundleID)
 			} catch {
-				print("Could not reset TCC permissions: \(error)")
+				AppLog.error(.app, "Could not reset TCC permissions", error: error)
 			}
 		}
 	}
