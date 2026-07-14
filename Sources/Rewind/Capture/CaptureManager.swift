@@ -431,10 +431,7 @@ actor CaptureManager {
     }
 
     private static func logError(_ label: String, _ error: Error) {
-        let nsError = error as NSError
-        AppLog.error(
-            .capture, label, "domain:", nsError.domain, "code:", nsError.code, "userInfo:",
-            nsError.userInfo)
+        AppLog.error(.capture, label, error: error)
     }
 
     private func startRotationLoop() {

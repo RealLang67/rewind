@@ -238,6 +238,23 @@ enum AppLog {
 		log(category, items, separator: separator, level: .error)
 	}
 
+	/// Logs `error` under `label` with its `NSError` domain/code/userInfo. Error
+	/// logs are always persisted to the session file, so failures stay debuggable
+	/// on machines where verbose logging is off.
+	static func error(_ category: Category, _ label: String, error: Error?) {
+		guard let error else {
+			log(category, [label, "no error info."], separator: " ", level: .error)
+			return
+		}
+		let nsError = error as NSError
+		log(
+			category,
+			[label, "domain:", nsError.domain, "code:", nsError.code, "userInfo:", nsError.userInfo],
+			separator: " ",
+			level: .error
+		)
+	}
+
 	private static func log(_ category: Category, _ items: [Any], separator: String, level: OSLogType) {
 		let message = items.map { String(describing: $0) }.joined(separator: separator)
 		let logger: Logger
