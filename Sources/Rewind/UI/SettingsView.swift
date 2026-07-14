@@ -32,6 +32,11 @@ struct SettingsView: View {
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
 		.frame(minWidth: 440, minHeight: 440)
+		.safeAreaInset(edge: .top, spacing: 0) {
+			if settingsLocked {
+				PermissionCallout()
+			}
+		}
 		.background(
 			WindowAccessor { window in
 				applyNaturalWindowSizeIfNeeded(window)
@@ -79,10 +84,6 @@ private struct CaptureSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section("Recording") {
 				LabeledContent {
 					Stepper(
@@ -210,10 +211,6 @@ private struct HotkeysSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section {
 				HotkeyRecorderRow(title: "Start/Stop recording", hotkey: $appState.startRecordingHotkey)
 				HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
@@ -296,10 +293,6 @@ private struct FeedbackSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			FeedbackSection(
 				title: "Save Feedback",
 				toggleLabel: "Enable save feedback",
@@ -372,10 +365,6 @@ private struct IntegrationsSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section("Connections") {
 				Toggle(isOn: $appState.discordRPCEnabled) {
 					HelpLabel("Enable Discord RPC", help: "Shows your recording status on your Discord profile.")
@@ -393,10 +382,6 @@ private struct UploadSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section {
 				Toggle(isOn: $appState.catboxEnabled) {
 					HelpLabel("Catbox.moe", help: "Enable uploading clips to Catbox.moe (permanent).")
@@ -458,6 +443,7 @@ private struct AboutSettingsPane: View {
 				Button("Check for Updates...") {
 					updaterController.checkForUpdates()
 				}
+				.liquidGlassButtonStyle()
 				.disabled(!updaterController.updater.canCheckForUpdates)
 			}
 
@@ -471,6 +457,7 @@ private struct AboutSettingsPane: View {
 						NSWorkspace.shared.activateFileViewerSelecting([url])
 					}
 				}
+				.liquidGlassButtonStyle()
 			}
 		}
 		.formStyle(.grouped)
@@ -516,20 +503,33 @@ private struct HelpLabel: View {
 	}
 }
 
-private struct PermissionNoticeRow: View {
+private struct PermissionCallout: View {
 	var body: some View {
-		Section {
-			VStack(alignment: .leading, spacing: 8) {
-				Label("Screen recording permission is required to change capture settings.", systemImage: "lock.fill")
-					.font(.callout)
-					.foregroundStyle(.secondary)
+		HStack(spacing: 12) {
+			Image(systemName: "lock.fill")
+				.font(.title3)
+				.foregroundStyle(.secondary)
 
-				Button("Open System Settings") {
-					PermissionManager.openSystemSettings()
-				}
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Screen recording permission required")
+					.font(.callout.weight(.medium))
+				Text("Grant access to change capture settings.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
 			}
-			.padding(.vertical, 2)
+
+			Spacer(minLength: 8)
+
+			Button("Open System Settings") {
+				PermissionManager.openSystemSettings()
+			}
+			.buttonStyle(.borderedProminent)
+			.controlSize(.small)
 		}
+		.padding(12)
+		.liquidGlassCard(cornerRadius: 14)
+		.padding(.horizontal)
+		.padding(.top, 8)
 	}
 }
 
