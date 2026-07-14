@@ -131,7 +131,7 @@ private struct CaptureSettingsPane: View {
 
 				Picker(selection: $appState.selectedQuality) {
 					ForEach(QualityPreset.presets) { preset in
-						Text(preset.label).tag(preset)
+						Text(defaultTaggedLabel(preset.label, isDefault: preset.isDefault)).tag(preset)
 					}
 				} label: {
 					HelpLabel("Quality", help: "Higher quality increases file size but produces clearer video.")
@@ -140,7 +140,7 @@ private struct CaptureSettingsPane: View {
 
 				Picker(selection: $appState.selectedFrameRate) {
 					ForEach(CaptureFrameRate.options) { option in
-						Text(option.label).tag(option)
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
 					}
 				} label: {
 					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
@@ -156,7 +156,7 @@ private struct CaptureSettingsPane: View {
 			Section("Output") {
 				Picker(selection: $appState.selectedContainer) {
 					ForEach(CaptureContainer.options) { option in
-						Text(option.label).tag(option)
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
 					}
 				} label: {
 					HelpLabel("Container", help: "Video file format for saved clips (.mp4 or .mov).")
@@ -165,7 +165,7 @@ private struct CaptureSettingsPane: View {
 
 				Picker(selection: $appState.selectedAudioCodec) {
 					ForEach(CaptureAudioCodec.options) { option in
-						Text(option.label).tag(option)
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
 					}
 				} label: {
 					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
@@ -196,7 +196,8 @@ private struct CaptureSettingsPane: View {
 		} else {
 			Picker("Resolution", selection: $appState.selectedResolution) {
 				ForEach(appState.availableResolutions) { resolution in
-					Text(resolution.label).tag(Optional(resolution))
+					Text(defaultTaggedLabel(resolution.label, isDefault: resolution.isNative))
+							.tag(Optional(resolution))
 				}
 			}
 			.labelsHidden()
@@ -462,6 +463,10 @@ private struct AboutSettingsPane: View {
 		}
 		.formStyle(.grouped)
 	}
+}
+
+private func defaultTaggedLabel(_ label: String, isDefault: Bool) -> String {
+	isDefault ? "\(label) (Default)" : label
 }
 
 private struct HelpLabel: View {

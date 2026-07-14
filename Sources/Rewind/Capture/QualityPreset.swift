@@ -61,4 +61,6 @@ struct QualityPreset: Hashable, Identifiable {
 	]
 
 	static let `default` = presets.first { $0.id == "medium" }!
+
+	var isDefault: Bool { id == QualityPreset.default.id }
 }

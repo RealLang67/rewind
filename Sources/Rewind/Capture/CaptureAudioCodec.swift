@@ -25,4 +25,6 @@ struct CaptureAudioCodec: Hashable, Identifiable {
 
 	static let options: [CaptureAudioCodec] = [.linearPCM, .appleLossless, .aac]
 	static let `default` = appleLossless
+
+	var isDefault: Bool { id == CaptureAudioCodec.default.id }
 }

@@ -23,4 +23,6 @@ struct CaptureFrameRate: Hashable, Identifiable {
 
 	static let options: [CaptureFrameRate] = [fps30, fps60]
 	static let `default` = fps60
+
+	var isDefault: Bool { framesPerSecond == CaptureFrameRate.default.framesPerSecond }
 }
