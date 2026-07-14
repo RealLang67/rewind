@@ -10,9 +10,16 @@ enum AppLog {
 		case library
 	}
 
+	/// Number of per-session log files to retain. Each app launch writes a new
+	/// `session-<timestamp>.log`; older ones beyond this count are pruned so the
+	/// always-on error log can never grow without bound.
+	private static let maxSessionLogs = 10
+
 	private static let lock = NSLock()
 	private nonisolated(unsafe) static var _fileLoggingEnabled: Bool = false
 
+	/// When on, verbose (`info`/`debug`) logs are also written to the session
+	/// file. Errors are written regardless of this flag.
 	static var fileLoggingEnabled: Bool {
 		get {
 			lock.lock()
@@ -21,29 +28,37 @@ enum AppLog {
 		}
 		set {
 			lock.lock()
-			let changed = _fileLoggingEnabled != newValue
 			_fileLoggingEnabled = newValue
 			lock.unlock()
-			if changed {
-				if newValue {
-					dumpDiagnostics()
-				}
-			}
 		}
 	}
 
 	private static let fileLoggerQueue = DispatchQueue(label: "com.rewind.filelogger", qos: .background)
-	private static let fileHandle: FileHandle? = {
+
+	/// URL of this launch's session log file. Computed once; creating it also
+	/// prunes older session files.
+	static let sessionLogURL: URL? = {
 		let fileManager = FileManager.default
 		guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
 		let logsDir = appSupportURL.appendingPathComponent("Rewind").appendingPathComponent("Logs")
 		do {
 			try fileManager.createDirectory(at: logsDir, withIntermediateDirectories: true, attributes: nil)
-			let logFileURL = logsDir.appendingPathComponent("app.log")
-			if !fileManager.fileExists(atPath: logFileURL.path) {
-				fileManager.createFile(atPath: logFileURL.path, contents: nil, attributes: nil)
-			}
-			let handle = try FileHandle(forWritingTo: logFileURL)
+		} catch {
+			print("File logger setup: \(error)")
+			return nil
+		}
+		pruneOldSessions(in: logsDir, keeping: maxSessionLogs)
+		return logsDir.appendingPathComponent("session-\(sessionTimestamp()).log")
+	}()
+
+	private static let fileHandle: FileHandle? = {
+		guard let url = sessionLogURL else { return nil }
+		let fileManager = FileManager.default
+		if !fileManager.fileExists(atPath: url.path) {
+			fileManager.createFile(atPath: url.path, contents: nil, attributes: nil)
+		}
+		do {
+			let handle = try FileHandle(forWritingTo: url)
 			handle.seekToEndOfFile()
 			return handle
 		} catch {
@@ -52,14 +67,40 @@ enum AppLog {
 		}
 	}()
 
-	static var logFileURL: URL? {
-		let fileManager = FileManager.default
-		guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-		return appSupportURL.appendingPathComponent("Rewind").appendingPathComponent("Logs").appendingPathComponent("app.log")
+	/// Current session's log file, surfaced to the UI ("Reveal Log File in Finder").
+	static var logFileURL: URL? { sessionLogURL }
+
+	/// Filename-safe timestamp (no colons) that sorts chronologically as text.
+	private static func sessionTimestamp() -> String {
+		let formatter = DateFormatter()
+		formatter.locale = Locale(identifier: "en_US_POSIX")
+		formatter.timeZone = TimeZone.current
+		formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
+		return formatter.string(from: Date())
 	}
 
-	private static func writeToFile(_ message: String) {
-		guard fileLoggingEnabled else { return }
+	private static func pruneOldSessions(in directory: URL, keeping keepCount: Int) {
+		let fileManager = FileManager.default
+		guard let contents = try? fileManager.contentsOfDirectory(
+			at: directory, includingPropertiesForKeys: nil
+		) else { return }
+		let sessions = contents
+			.filter { $0.lastPathComponent.hasPrefix("session-") && $0.pathExtension == "log" }
+			.sorted { $0.lastPathComponent < $1.lastPathComponent }
+		guard sessions.count >= keepCount else { return }
+		// Keep the newest (keepCount - 1) so there's room for the file we're about
+		// to create; remove the rest.
+		let removeCount = sessions.count - (keepCount - 1)
+		for url in sessions.prefix(removeCount) {
+			try? fileManager.removeItem(at: url)
+		}
+	}
+
+	/// Guards the one-time diagnostics header write at the top of the session file.
+	private nonisolated(unsafe) static var _didWriteSessionHeader = false
+
+	private static func writeToFile(_ message: String, force: Bool = false) {
+		guard force || fileLoggingEnabled else { return }
 		fileLoggerQueue.async {
 			guard let handle = fileHandle else { return }
 			let timestamp = ISO8601DateFormatter().string(from: Date())
@@ -70,8 +111,21 @@ enum AppLog {
 		}
 	}
 
+	/// Called once at launch (from `setupCrashHandlers`, on the main thread) to
+	/// stamp system diagnostics at the top of the session file. Main-thread so
+	/// `NSScreen` access is safe.
+	private static func beginSession() {
+		lock.lock()
+		let already = _didWriteSessionHeader
+		_didWriteSessionHeader = true
+		lock.unlock()
+		guard !already else { return }
+		writeToFile(diagnosticsReport(), force: true)
+	}
+
 	static func setupCrashHandlers() {
 		_ = fileHandle
+		beginSession()
 
 		NSSetUncaughtExceptionHandler { exception in
 			AppLog.logCrash("Uncaught Exception: \(exception.name.rawValue)\nReason: \(exception.reason ?? "nil")\nUser Info: \(exception.userInfo ?? [:])\nCall Stack:\n\(exception.callStackSymbols.joined(separator: "\n"))")
@@ -89,7 +143,7 @@ enum AppLog {
 	private static func logCrash(_ message: String) {
 		let timestamp = ISO8601DateFormatter().string(from: Date())
 		let logMessage = "[\(timestamp)] [CRASH] \(message)\n"
-		
+
 		if let data = logMessage.data(using: .utf8), let handle = fileHandle {
 			handle.seekToEndOfFile()
 			handle.write(data)
@@ -97,14 +151,13 @@ enum AppLog {
 		}
 	}
 
-	static func dumpDiagnostics() {
-		guard fileLoggingEnabled else { return }
+	private static func diagnosticsReport() -> String {
 		var diagnostics = [String]()
 		diagnostics.append("--- Rewind Diagnostics ---")
-		
+
 		let processInfo = ProcessInfo.processInfo
 		diagnostics.append("OS Version: \(processInfo.operatingSystemVersionString)")
-		
+
 		var size = 0
 		sysctlbyname("hw.model", nil, &size, nil, 0)
 		var model = [CChar](repeating: 0, count: size)
@@ -131,9 +184,7 @@ enum AppLog {
 		}
 
 		diagnostics.append("--------------------------")
-		
-		let joined = diagnostics.joined(separator: "\n")
-		writeToFile(joined)
+		return diagnostics.joined(separator: "\n")
 	}
 
 	private static let subsystem: String = Bundle.main.bundleIdentifier ?? "Rewind"
@@ -214,15 +265,15 @@ enum AppLog {
 			print("[\(category.rawValue)] \(message)")
 		}
 
-		if fileLoggingEnabled {
-			let levelString: String
-			switch level {
-			case .error: levelString = "ERROR"
-			case .info: levelString = "INFO"
-			case .debug: levelString = "DEBUG"
-			default: levelString = "LOG"
-			}
-			writeToFile("[\(category.rawValue)] [\(levelString)] \(message)")
+		let levelString: String
+		switch level {
+		case .error: levelString = "ERROR"
+		case .info: levelString = "INFO"
+		case .debug: levelString = "DEBUG"
+		default: levelString = "LOG"
 		}
+		// Errors are always persisted so field failures are debuggable even when
+		// verbose file logging is off; info/debug honor `fileLoggingEnabled`.
+		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", force: level == .error)
 	}
 }

@@ -679,7 +679,11 @@ final class ReplayWriter: @unchecked Sendable {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
         guard acceptsMediaData else { return }
         guard let micInput = micInput, let writer = writer else { return }
-        if writer.status == .failed { acceptsMediaData = false; return }
+        if writer.status == .failed {
+            logWriterError("ReplayWriter.appendMic writer failed", writer.error)
+            acceptsMediaData = false
+            return
+        }
 
         logFirstMicBufferIfNeeded(sampleBuffer)
 
@@ -1444,9 +1448,9 @@ final class ReplayWriter: @unchecked Sendable {
                         let error = writer.error
                         if let error {
                             let nsError = error as NSError
-                            Log.info(
-                                "ReplayWriter.finishWriting: failed. domain:", nsError.domain,
-                                "code:", nsError.code, "userInfo:", nsError.userInfo)
+                            AppLog.error(
+                                .writer, "ReplayWriter.finishWriting: failed. domain:",
+                                nsError.domain, "code:", nsError.code, "userInfo:", nsError.userInfo)
                         } else {
                             Log.info("ReplayWriter.finishWriting: success.")
                         }
@@ -1482,29 +1486,31 @@ final class ReplayWriter: @unchecked Sendable {
         videoInput: AVAssetWriterInput,
         sampleBuffer: CMSampleBuffer
     ) {
-        Log.info(
-            label, "status:", writer.status.rawValue, "ready:", videoInput.isReadyForMoreMediaData)
+        AppLog.error(
+            .writer, label, "status:", writer.status.rawValue, "ready:",
+            videoInput.isReadyForMoreMediaData)
         if let error = writer.error {
             let nsError = error as NSError
-            Log.info(
-                "ReplayWriter.appendVideo writer.error domain:", nsError.domain, "code:",
+            AppLog.error(
+                .writer, "ReplayWriter.appendVideo writer.error domain:", nsError.domain, "code:",
                 nsError.code, "userInfo:", nsError.userInfo)
         } else {
-            Log.info("ReplayWriter.appendVideo writer.error: nil")
+            AppLog.error(.writer, "ReplayWriter.appendVideo writer.error: nil")
         }
-        Log.info("ReplayWriter.appendVideo videoInput.error: unavailable (no public API)")
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         if lastVideoPTS.isValid {
-            Log.info(
-                "ReplayWriter.appendVideo PTS last:", lastVideoPTS.seconds, "now:", pts.seconds)
+            AppLog.error(
+                .writer, "ReplayWriter.appendVideo PTS last:", lastVideoPTS.seconds, "now:",
+                pts.seconds)
         } else {
-            Log.info("ReplayWriter.appendVideo PTS now:", pts.seconds)
+            AppLog.error(.writer, "ReplayWriter.appendVideo PTS now:", pts.seconds)
         }
         if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
             let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
-            Log.info("ReplayWriter.appendVideo buffer:", width, "x", height, "format:", format)
+            AppLog.error(
+                .writer, "ReplayWriter.appendVideo buffer:", width, "x", height, "format:", format)
         }
     }
 
@@ -1514,18 +1520,19 @@ final class ReplayWriter: @unchecked Sendable {
         audioInput: AVAssetWriterInput,
         sampleBuffer: CMSampleBuffer
     ) {
-        Log.info(
-            label, "status:", writer.status.rawValue, "ready:", audioInput.isReadyForMoreMediaData)
+        AppLog.error(
+            .writer, label, "status:", writer.status.rawValue, "ready:",
+            audioInput.isReadyForMoreMediaData)
         if let error = writer.error {
             let nsError = error as NSError
-            Log.info(
-                "ReplayWriter.appendAudio writer.error domain:", nsError.domain, "code:",
+            AppLog.error(
+                .writer, "ReplayWriter.appendAudio writer.error domain:", nsError.domain, "code:",
                 nsError.code, "userInfo:", nsError.userInfo)
         } else {
-            Log.info("ReplayWriter.appendAudio writer.error: nil")
+            AppLog.error(.writer, "ReplayWriter.appendAudio writer.error: nil")
         }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        Log.info("ReplayWriter.appendAudio PTS:", pts.seconds)
+        AppLog.error(.writer, "ReplayWriter.appendAudio PTS:", pts.seconds)
     }
 
     private func logAudioFormat(_ sampleBuffer: CMSampleBuffer) {
