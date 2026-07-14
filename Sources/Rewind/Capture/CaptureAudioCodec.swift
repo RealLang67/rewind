@@ -18,7 +18,7 @@ struct CaptureAudioCodec: Hashable, Identifiable {
 	)
 
 	static let options: [CaptureAudioCodec] = [.appleLossless, .aac]
-	static let `default` = appleLossless
+	static let `default` = aac
 
 	var isDefault: Bool { id == CaptureAudioCodec.default.id }
 }
