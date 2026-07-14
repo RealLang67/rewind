@@ -22,6 +22,7 @@ let package = Package(
 				.unsafeFlags([
 					"-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
 					"-Xlinker", "-rpath", "-Xlinker", "@executable_path",
+					"-Xlinker", "-platform_version", "-Xlinker", "macos", "-Xlinker", "13.0", "-Xlinker", "26.0",
 				]),
 			]
 		),
