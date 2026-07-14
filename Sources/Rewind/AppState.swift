@@ -5,11 +5,6 @@ import Combine
 
 @MainActor
 final class AppState: ObservableObject {
-	private enum StorageWarning {
-		static let thresholdBytes: Int64 = 5 * 1024 * 1024 * 1024
-		static let refreshIntervalNanos: UInt64 = 30 * 1_000_000_000
-	}
-
 	static let supportsMicrophoneCapture = ProcessInfo.processInfo.isOperatingSystemAtLeast(
 		OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
 	)
@@ -137,8 +132,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard saveFeedbackSound != oldValue else { return }
-			replaySavedSound = nil
-			replaySavedBoostSound = nil
+			soundFeedback.invalidate(.saved)
 			persistSettings()
 		}
 	}
@@ -171,8 +165,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard recordingStartFeedbackSound != oldValue else { return }
-			recordingStartSound = nil
-			recordingStartBoostSound = nil
+			soundFeedback.invalidate(.recordingStart)
 			persistSettings()
 		}
 	}
@@ -205,8 +198,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard recordingEndFeedbackSound != oldValue else { return }
-			recordingEndSound = nil
-			recordingEndBoostSound = nil
+			soundFeedback.invalidate(.recordingEnd)
 			persistSettings()
 		}
 	}
@@ -240,8 +232,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard errorFeedbackSound != oldValue else { return }
-			errorSound = nil
-			errorBoostSound = nil
+			soundFeedback.invalidate(.error)
 			persistSettings()
 			playErrorFeedback()
 		}
@@ -332,17 +323,10 @@ final class AppState: ObservableObject {
 	let clipLibrary: ClipLibrary
 	private let discordRPCClient: DiscordRPCClient
 	private let hotkeyManager: GlobalHotkeyManager
-	private var replaySavedSound: NSSound?
-	private var replaySavedBoostSound: NSSound?
-	private var recordingStartSound: NSSound?
-	private var recordingStartBoostSound: NSSound?
-	private var recordingEndSound: NSSound?
-	private var recordingEndBoostSound: NSSound?
-	private var errorSound: NSSound?
-	private var errorBoostSound: NSSound?
+	private let soundFeedback = SoundFeedbackController()
+	private var storageMonitor: StorageMonitor!
 	private var discordActivityState: DiscordActivityState = .idle
 	private var discordPresenceRetryTask: Task<Void, Never>?
-	private var storageMonitorTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
@@ -401,7 +385,10 @@ final class AppState: ObservableObject {
 			}
 		}
 		Task { await loadAvailableResolutions() }
-		startStorageMonitor()
+		storageMonitor = StorageMonitor { [weak self] message in
+			self?.lowStorageWarningMessage = message
+		}
+		storageMonitor.start()
 		Task {
 			await discordRPCClient.setEnabled(discordRPCEnabled)
 			self.publishDiscordPresenceWithRetry(for: self.discordActivityState)
@@ -604,122 +591,44 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	private func playFeedback(
-		enabled: Bool,
-		volume: Double,
-		sound: FeedbackSound,
-		defaultSoundName: String,
-		cachedSound: NSSound?,
-		cachedBoostSound: NSSound?,
-		updateCache: (NSSound?, NSSound?) -> Void
-	) {
-		guard enabled else { return }
-
-		let soundName = sound.id == "default" ? defaultSoundName : sound.systemSoundName
-
-		let primary: NSSound
-		if let cached = cachedSound {
-			primary = cached
-		} else {
-			if let newSound = NSSound(named: NSSound.Name(soundName)) {
-				primary = newSound
-			} else {
-				let sourceFileURL = URL(fileURLWithPath: #filePath)
-				let rootURL = sourceFileURL.deletingLastPathComponent().deletingLastPathComponent()
-					.deletingLastPathComponent()
-				let devURL = rootURL.appendingPathComponent("Resources/Sounds/\(soundName).wav")
-				if let newSound = NSSound(contentsOf: devURL, byReference: true) {
-					primary = newSound
-				} else {
-					let rootDevURL = rootURL.appendingPathComponent("Resources/\(soundName).wav")
-					if let newSound = NSSound(contentsOf: rootDevURL, byReference: true) {
-						primary = newSound
-					} else {
-						return
-					}
-				}
-			}
-		}
-
-		let boost: NSSound?
-		if let cachedBoost = cachedBoostSound {
-			boost = cachedBoost
-		} else {
-			boost = primary.copy() as? NSSound
-		}
-
-		updateCache(primary, boost)
-
-		let normalizedVolume = volume / 100
-		let primaryVolume = Float(min(1, normalizedVolume * 1.25))
-		let boostMix = max(0, normalizedVolume - 0.55) / 0.45
-		let boostVolume = Float(min(1, boostMix * 0.9))
-
-		primary.stop()
-		primary.volume = primaryVolume
-		primary.play()
-
-		if boostVolume > 0, let boost = boost {
-			boost.stop()
-			boost.volume = boostVolume
-			boost.play()
-		}
-	}
-
 	func playReplaySavedFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.saved,
 			enabled: saveFeedbackEnabled,
 			volume: saveFeedbackVolume,
 			sound: saveFeedbackSound,
-			defaultSoundName: "save",
-			cachedSound: replaySavedSound,
-			cachedBoostSound: replaySavedBoostSound
-		) { [weak self] primary, boost in
-			self?.replaySavedSound = primary
-			self?.replaySavedBoostSound = boost
-		}
+			defaultSoundName: "save"
+		)
 	}
 
 	func playRecordingStartFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.recordingStart,
 			enabled: recordingStartFeedbackEnabled,
 			volume: recordingStartFeedbackVolume,
 			sound: recordingStartFeedbackSound,
-			defaultSoundName: "start",
-			cachedSound: recordingStartSound,
-			cachedBoostSound: recordingStartBoostSound
-		) { [weak self] primary, boost in
-			self?.recordingStartSound = primary
-			self?.recordingStartBoostSound = boost
-		}
+			defaultSoundName: "start"
+		)
 	}
 
 	func playRecordingEndFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.recordingEnd,
 			enabled: recordingEndFeedbackEnabled,
 			volume: recordingEndFeedbackVolume,
 			sound: recordingEndFeedbackSound,
-			defaultSoundName: "end",
-			cachedSound: recordingEndSound,
-			cachedBoostSound: recordingEndBoostSound
-		) { [weak self] primary, boost in
-			self?.recordingEndSound = primary
-			self?.recordingEndBoostSound = boost
-		}
+			defaultSoundName: "end"
+		)
 	}
 
 	func playErrorFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.error,
 			enabled: errorFeedbackEnabled,
 			volume: errorFeedbackVolume,
 			sound: errorFeedbackSound,
-			defaultSoundName: "error",
-			cachedSound: errorSound,
-			cachedBoostSound: errorBoostSound
-		) { [weak self] primary, boost in
-			self?.errorSound = primary
-			self?.errorBoostSound = boost
-		}
+			defaultSoundName: "error"
+		)
 	}
 
 	private func resolvedClipDuration(for url: URL) async throws -> TimeInterval {
@@ -802,61 +711,7 @@ final class AppState: ObservableObject {
 		)
 	}
 
-	private func startStorageMonitor() {
-		refreshStorageWarning()
-		storageMonitorTask?.cancel()
-		storageMonitorTask = Task { [weak self] in
-			while !Task.isCancelled {
-				try? await Task.sleep(nanoseconds: StorageWarning.refreshIntervalNanos)
-				if Task.isCancelled { break }
-				self?.refreshStorageWarning()
-			}
-		}
-	}
-
 	private func refreshStorageWarning() {
-		guard let freeBytes = availableStorageBytes() else {
-			lowStorageWarningMessage = nil
-			return
-		}
-
-		if freeBytes < StorageWarning.thresholdBytes {
-			lowStorageWarningMessage = "Low disk space: \(formattedStorage(freeBytes)) left."
-		} else {
-			lowStorageWarningMessage = nil
-		}
-	}
-
-	private func availableStorageBytes() -> Int64? {
-		let fileManager = FileManager.default
-		let targetURL =
-			fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first
-				?? fileManager.homeDirectoryForCurrentUser
-
-		if let resourceValues = try? targetURL.resourceValues(forKeys: [
-			.volumeAvailableCapacityForImportantUsageKey,
-			.volumeAvailableCapacityKey,
-		]) {
-			if let availableForImportantUsage = resourceValues
-				.volumeAvailableCapacityForImportantUsage
-			{
-				return availableForImportantUsage
-			}
-			if let availableCapacity = resourceValues.volumeAvailableCapacity {
-				return Int64(availableCapacity)
-			}
-		}
-
-		if let attributes = try? fileManager.attributesOfFileSystem(forPath: targetURL.path),
-		   let freeSize = attributes[.systemFreeSize] as? NSNumber
-		{
-			return freeSize.int64Value
-		}
-
-		return nil
-	}
-
-	private func formattedStorage(_ bytes: Int64) -> String {
-		ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+		storageMonitor.refresh()
 	}
 }
