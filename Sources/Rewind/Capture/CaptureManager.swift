@@ -232,16 +232,6 @@ actor CaptureManager {
 
     private var captureAudioSettings: [String: Any] {
         switch currentAudioCodec.id {
-        case CaptureAudioCodec.linearPCM.id:
-            return [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false,
-                "AVLinearPCMIsNonInterleaved": false,
-            ]
         case CaptureAudioCodec.aac.id:
             return [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,

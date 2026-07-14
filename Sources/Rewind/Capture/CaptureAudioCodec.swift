@@ -5,12 +5,6 @@ struct CaptureAudioCodec: Hashable, Identifiable {
 	let label: String
 	let description: String
 
-	static let linearPCM = CaptureAudioCodec(
-		id: "pcm",
-		label: "Linear PCM",
-		description: "Uncompressed audio, largest files"
-	)
-
 	static let appleLossless = CaptureAudioCodec(
 		id: "alac",
 		label: "Apple Lossless",
@@ -23,7 +17,7 @@ struct CaptureAudioCodec: Hashable, Identifiable {
 		description: "Compressed audio, smallest files"
 	)
 
-	static let options: [CaptureAudioCodec] = [.linearPCM, .appleLossless, .aac]
+	static let options: [CaptureAudioCodec] = [.appleLossless, .aac]
 	static let `default` = appleLossless
 
 	var isDefault: Bool { id == CaptureAudioCodec.default.id }
