@@ -5,3 +5,4 @@ dist
 docs
 .swiftpm
 private_key.txt
+CLAUDE.md
