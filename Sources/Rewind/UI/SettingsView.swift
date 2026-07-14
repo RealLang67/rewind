@@ -146,10 +146,6 @@ private struct CaptureSettingsPane: View {
 					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
 				}
 				.pickerStyle(.menu)
-
-				Toggle(isOn: $appState.useBFrames) {
-					HelpLabel("Use B-Frames", help: "Improves quality at no file size cost, but may cause issues.")
-				}
 			}
 			.disabled(settingsLocked)
 

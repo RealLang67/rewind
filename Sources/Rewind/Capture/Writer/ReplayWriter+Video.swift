@@ -102,7 +102,6 @@ extension ReplayWriter {
                 videoMode: desiredMode,
                 quality: configuredQuality,
                 frameRate: configuredFrameRate,
-                useBFrames: configuredUseBFrames,
                 recordMicrophone: configuredRecordMicrophone
             )
         } catch {
@@ -138,7 +137,6 @@ extension ReplayWriter {
                 videoMode: configuredVideoMode,
                 quality: configuredQuality,
                 frameRate: configuredFrameRate,
-                useBFrames: configuredUseBFrames,
                 recordMicrophone: configuredRecordMicrophone
             )
         } catch {

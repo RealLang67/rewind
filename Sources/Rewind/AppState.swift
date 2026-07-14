@@ -255,14 +255,6 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	@Published var useBFrames = AppSettings.default.useBFrames {
-		didSet {
-			guard !isRestoringSettings else { return }
-			guard useBFrames != oldValue else { return }
-			persistSettings()
-		}
-	}
-	
 	@Published var recordMicrophoneEnabled = AppSettings.default.recordMicrophoneEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -372,7 +364,6 @@ final class AppState: ObservableObject {
 		errorFeedbackVolume = settings.errorFeedbackVolume
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
-		useBFrames = settings.useBFrames
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
@@ -492,7 +483,6 @@ final class AppState: ObservableObject {
 				quality: selectedQuality,
 				frameRate: selectedFrameRate.framesPerSecond,
 				audioCodec: selectedAudioCodec,
-				useBFrames: useBFrames,
 				recordMicrophoneEnabled: recordMicrophoneEnabled
 			)
 			isCapturing = true
@@ -541,7 +531,6 @@ final class AppState: ObservableObject {
 					quality: selectedQuality,
 					frameRate: selectedFrameRate.framesPerSecond,
 					audioCodec: selectedAudioCodec,
-					useBFrames: useBFrames,
 					recordMicrophoneEnabled: recordMicrophoneEnabled
 				)
 			} catch {
@@ -702,7 +691,6 @@ final class AppState: ObservableObject {
 				errorFeedbackVolume: errorFeedbackVolume,
 				errorFeedbackSoundID: errorFeedbackSound.id,
 				discordRPCEnabled: discordRPCEnabled,
-				useBFrames: useBFrames,
 				fileLoggingEnabled: fileLoggingEnabled,
 				catboxEnabled: catboxEnabled,
 				litterboxEnabled: litterboxEnabled,

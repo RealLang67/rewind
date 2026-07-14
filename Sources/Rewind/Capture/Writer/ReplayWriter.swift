@@ -52,7 +52,6 @@ final class ReplayWriter: @unchecked Sendable {
     var configuredVideoMode: VideoMode = .pixelBufferEncode
     var configuredQuality: QualityPreset = .default
     var configuredFrameRate = Constants.defaultFrameRate
-    var configuredUseBFrames = false
     var configuredRecordMicrophone = false
     var includeAudio = false
     var requiresAudioForSession = false
@@ -120,7 +119,6 @@ final class ReplayWriter: @unchecked Sendable {
         videoMode: VideoMode = .pixelBufferEncode,
         quality: QualityPreset = .default,
         frameRate: Int = Constants.defaultFrameRate,
-        useBFrames: Bool = false,
         recordMicrophone: Bool = false
     ) throws {
         var configureError: Error?
@@ -134,7 +132,6 @@ final class ReplayWriter: @unchecked Sendable {
                     videoMode: videoMode,
                     quality: quality,
                     frameRate: frameRate,
-                    useBFrames: useBFrames,
                     recordMicrophone: recordMicrophone
                 )
             } catch {
@@ -153,7 +150,6 @@ final class ReplayWriter: @unchecked Sendable {
         videoMode: VideoMode,
         quality: QualityPreset,
         frameRate: Int,
-        useBFrames: Bool,
         recordMicrophone: Bool
     ) throws {
         guard outputURL.isFileURL else {
@@ -180,8 +176,7 @@ final class ReplayWriter: @unchecked Sendable {
                 "target bitrate:", String(format: "%.1f", estimatedBitrate), "Mbps")
 
             let videoSettings = VideoEncoderSettings.outputSettings(
-                quality: quality, width: width, height: height, frameRate: frameRate,
-                useBFrames: useBFrames)
+                quality: quality, width: width, height: height, frameRate: frameRate)
             videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
 
             let adaptorAttrs: [String: Any] = [
@@ -237,7 +232,6 @@ final class ReplayWriter: @unchecked Sendable {
         self.configuredVideoMode = videoMode
         self.configuredQuality = quality
         self.configuredFrameRate = frameRate
-        self.configuredUseBFrames = useBFrames
         self.configuredRecordMicrophone = recordMicrophone
         self.includeAudio = includeAudio
         self.requiresAudioForSession = includeAudio && audioInput != nil

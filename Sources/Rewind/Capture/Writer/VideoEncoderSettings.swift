@@ -18,8 +18,7 @@ enum VideoEncoderSettings {
         quality: QualityPreset,
         width: Int,
         height: Int,
-        frameRate: Int,
-        useBFrames: Bool
+        frameRate: Int
     ) -> [String: Any] {
         [
             AVVideoCodecKey: AVVideoCodecType.hevc,
@@ -28,8 +27,7 @@ enum VideoEncoderSettings {
             AVVideoCompressionPropertiesKey: compressionProperties(
                 for: quality,
                 videoSize: CGSize(width: width, height: height),
-                frameRate: frameRate,
-                useBFrames: useBFrames
+                frameRate: frameRate
             ),
         ]
     }
@@ -50,8 +48,7 @@ enum VideoEncoderSettings {
     private static func compressionProperties(
         for quality: QualityPreset,
         videoSize: CGSize,
-        frameRate: Int,
-        useBFrames: Bool
+        frameRate: Int
     ) -> [String: Any] {
         let normalizedFrameRate = max(30, min(frameRate, 60))
         let averageBitrateMbps = targetBitrateMbps(
@@ -61,7 +58,7 @@ enum VideoEncoderSettings {
             normalizedFrameRate, Int((Double(normalizedFrameRate) * 1.5).rounded()))
 
         // VBR bursting
-        let burstMultiplier = useBFrames ? 1.5 : 2.0
+        let burstMultiplier = 1.5
         let burstWindowSeconds = 2
         let maxBitrate = Int((averageBitrateMbps * burstMultiplier * 1_000_000).rounded())
 
@@ -70,7 +67,7 @@ enum VideoEncoderSettings {
             AVVideoExpectedSourceFrameRateKey: normalizedFrameRate,
             AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
             AVVideoMaxKeyFrameIntervalDurationKey: 1.5,
-            AVVideoAllowFrameReorderingKey: useBFrames,
+            AVVideoAllowFrameReorderingKey: true,
         ]
 
         let isTesting =

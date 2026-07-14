@@ -29,7 +29,6 @@ struct AppSettings: Codable {
 	var errorFeedbackVolume: Double
 	var errorFeedbackSoundID: String
 	var discordRPCEnabled: Bool
-	var useBFrames: Bool
 	var fileLoggingEnabled: Bool
 	var catboxEnabled: Bool
 	var litterboxEnabled: Bool
@@ -58,7 +57,6 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: 20,
 		errorFeedbackSoundID: FeedbackSound.defaultError.id,
 		discordRPCEnabled: true,
-		useBFrames: true,
 		fileLoggingEnabled: false,
 		catboxEnabled: false,
 		litterboxEnabled: false,
@@ -88,7 +86,6 @@ struct AppSettings: Codable {
 		case errorFeedbackVolume
 		case errorFeedbackSoundID
 		case discordRPCEnabled
-		case useBFrames
 		case fileLoggingEnabled
 		case catboxEnabled
 		case litterboxEnabled
@@ -118,7 +115,6 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: Double,
 		errorFeedbackSoundID: String,
 		discordRPCEnabled: Bool,
-		useBFrames: Bool,
 		fileLoggingEnabled: Bool,
 		catboxEnabled: Bool,
 		litterboxEnabled: Bool,
@@ -146,7 +142,6 @@ struct AppSettings: Codable {
 		self.errorFeedbackVolume = errorFeedbackVolume
 		self.errorFeedbackSoundID = errorFeedbackSoundID
 		self.discordRPCEnabled = discordRPCEnabled
-		self.useBFrames = useBFrames
 		self.fileLoggingEnabled = fileLoggingEnabled
 		self.catboxEnabled = catboxEnabled
 		self.litterboxEnabled = litterboxEnabled
@@ -186,7 +181,6 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .errorFeedbackSoundID)
 			?? FeedbackSound.defaultError.id
 		discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
-		useBFrames = try container.decodeIfPresent(Bool.self, forKey: .useBFrames) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
@@ -223,7 +217,6 @@ struct AppSettings: Codable {
 		try container.encode(errorFeedbackVolume, forKey: .errorFeedbackVolume)
 		try container.encode(errorFeedbackSoundID, forKey: .errorFeedbackSoundID)
 		try container.encode(discordRPCEnabled, forKey: .discordRPCEnabled)
-		try container.encode(useBFrames, forKey: .useBFrames)
 		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
 		try container.encode(catboxEnabled, forKey: .catboxEnabled)
 		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)

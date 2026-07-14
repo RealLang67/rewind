@@ -39,7 +39,6 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(settings.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(settings.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 		XCTAssertEqual(settings.catboxEnabled, AppSettings.default.catboxEnabled)
 		XCTAssertEqual(settings.litterboxEnabled, AppSettings.default.litterboxEnabled)
@@ -70,7 +69,6 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 45,
 			errorFeedbackSoundID: FeedbackSound.pop.id,
 			discordRPCEnabled: false,
-			useBFrames: false,
 			fileLoggingEnabled: false,
 			catboxEnabled: true,
 			litterboxEnabled: false,
@@ -102,7 +100,6 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, expected.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, expected.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, expected.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
 		XCTAssertEqual(loaded.catboxEnabled, expected.catboxEnabled)
 		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
@@ -133,7 +130,6 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 300,
 			errorFeedbackSoundID: "1234556789blahhhh",
 			discordRPCEnabled: false,
-			useBFrames: false,
 			fileLoggingEnabled: false,
 			catboxEnabled: false,
 			litterboxEnabled: false,
@@ -167,7 +163,6 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
@@ -199,7 +194,6 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
@@ -228,7 +222,6 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
 			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
 			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
-			useBFrames: AppSettings.default.useBFrames,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
@@ -276,7 +269,6 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
 			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
 			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
-			useBFrames: AppSettings.default.useBFrames,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
