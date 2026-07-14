@@ -239,4 +239,142 @@ final class AppSettingsStorageTests: XCTestCase {
 
 		XCTAssertNil(UserDefaults.standard.object(forKey: storageKey))
 	}
+
+	// - Default tracking ---
+
+	private func storedDictionary() throws -> [String: Any] {
+		let data = try XCTUnwrap(UserDefaults.standard.data(forKey: storageKey))
+		return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+	}
+
+	private func settings(
+		qualityID: String,
+		frameRate: Int,
+		containerID: String,
+		audioCodecID: String
+	) -> AppSettings {
+		AppSettings(
+			replayDuration: AppSettings.default.replayDuration,
+			resolutionID: AppSettings.default.resolutionID,
+			qualityID: qualityID,
+			frameRate: frameRate,
+			containerID: containerID,
+			audioCodecID: audioCodecID,
+			hotkey: AppSettings.default.hotkey,
+			startRecordingHotkey: AppSettings.default.startRecordingHotkey,
+			alwaysRecordEnabled: AppSettings.default.alwaysRecordEnabled,
+			saveFeedbackEnabled: AppSettings.default.saveFeedbackEnabled,
+			saveFeedbackVolume: AppSettings.default.saveFeedbackVolume,
+			saveFeedbackSoundID: AppSettings.default.saveFeedbackSoundID,
+			recordingStartFeedbackEnabled: AppSettings.default.recordingStartFeedbackEnabled,
+			recordingStartFeedbackVolume: AppSettings.default.recordingStartFeedbackVolume,
+			recordingStartFeedbackSoundID: AppSettings.default.recordingStartFeedbackSoundID,
+			recordingEndFeedbackEnabled: AppSettings.default.recordingEndFeedbackEnabled,
+			recordingEndFeedbackVolume: AppSettings.default.recordingEndFeedbackVolume,
+			recordingEndFeedbackSoundID: AppSettings.default.recordingEndFeedbackSoundID,
+			errorFeedbackEnabled: AppSettings.default.errorFeedbackEnabled,
+			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
+			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
+			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
+			useBFrames: AppSettings.default.useBFrames,
+			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			catboxEnabled: AppSettings.default.catboxEnabled,
+			litterboxEnabled: AppSettings.default.litterboxEnabled,
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled
+		)
+	}
+
+	func testDefaultValuedOptionsAreOmittedFromStorage() throws {
+		AppSettingsStorage.save(
+			settings(
+				qualityID: QualityPreset.default.id,
+				frameRate: CaptureFrameRate.default.framesPerSecond,
+				containerID: CaptureContainer.default.id,
+				audioCodecID: CaptureAudioCodec.default.id
+			)
+		)
+
+		let dict = try storedDictionary()
+		XCTAssertNil(dict["qualityID"])
+		XCTAssertNil(dict["frameRate"])
+		XCTAssertNil(dict["containerID"])
+		XCTAssertNil(dict["audioCodecID"])
+	}
+
+	func testNonDefaultOptionsArePersisted() throws {
+		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
+		let nonDefaultCodec = CaptureAudioCodec.options.first { !$0.isDefault }!
+		let nonDefaultQuality = QualityPreset.presets.first { !$0.isDefault }!
+		let nonDefaultFrameRate = CaptureFrameRate.options.first { !$0.isDefault }!
+
+		AppSettingsStorage.save(
+			settings(
+				qualityID: nonDefaultQuality.id,
+				frameRate: nonDefaultFrameRate.framesPerSecond,
+				containerID: nonDefaultContainer.id,
+				audioCodecID: nonDefaultCodec.id
+			)
+		)
+
+		let dict = try storedDictionary()
+		XCTAssertEqual(dict["containerID"] as? String, nonDefaultContainer.id)
+		XCTAssertEqual(dict["audioCodecID"] as? String, nonDefaultCodec.id)
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.containerID, nonDefaultContainer.id)
+		XCTAssertEqual(loaded.audioCodecID, nonDefaultCodec.id)
+		XCTAssertEqual(loaded.qualityID, nonDefaultQuality.id)
+		XCTAssertEqual(loaded.frameRate, nonDefaultFrameRate.framesPerSecond)
+	}
+
+	func testAbsentOptionResolvesToCurrentDefault() throws {
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict.removeValue(forKey: "qualityID")
+		dict.removeValue(forKey: "frameRate")
+		dict.removeValue(forKey: "containerID")
+		dict.removeValue(forKey: "audioCodecID")
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.qualityID, QualityPreset.default.id)
+		XCTAssertEqual(loaded.frameRate, CaptureFrameRate.default.framesPerSecond)
+		XCTAssertEqual(loaded.containerID, CaptureContainer.default.id)
+		XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.default.id)
+	}
+
+	func testLegacyDefaultValuedBlobIsNormalizedOnLoad() throws {
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict["qualityID"] = QualityPreset.default.id
+		dict["frameRate"] = CaptureFrameRate.default.framesPerSecond
+		dict["containerID"] = CaptureContainer.default.id
+		dict["audioCodecID"] = CaptureAudioCodec.default.id
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		_ = AppSettingsStorage.load()
+
+		let normalized = try storedDictionary()
+		XCTAssertNil(normalized["qualityID"])
+		XCTAssertNil(normalized["frameRate"])
+		XCTAssertNil(normalized["containerID"])
+		XCTAssertNil(normalized["audioCodecID"])
+	}
+
+	func testLegacyNonDefaultBlobIsPreservedOnLoad() throws {
+		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict["containerID"] = nonDefaultContainer.id
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.containerID, nonDefaultContainer.id)
+
+		let stored = try storedDictionary()
+		XCTAssertEqual(stored["containerID"] as? String, nonDefaultContainer.id)
+	}
 }

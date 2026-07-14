@@ -157,8 +157,8 @@ struct AppSettings: Codable {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
 		replayDuration = try container.decode(TimeInterval.self, forKey: .replayDuration)
 		resolutionID = try container.decodeIfPresent(String.self, forKey: .resolutionID)
-		qualityID = try container.decode(String.self, forKey: .qualityID)
-		frameRate = try container.decode(Int.self, forKey: .frameRate)
+		qualityID = try container.decodeIfPresent(String.self, forKey: .qualityID) ?? QualityPreset.default.id
+		frameRate = try container.decodeIfPresent(Int.self, forKey: .frameRate) ?? CaptureFrameRate.default.framesPerSecond
 		containerID = try container.decodeIfPresent(String.self, forKey: .containerID) ?? CaptureContainer.default.id
 		audioCodecID = try container.decodeIfPresent(String.self, forKey: .audioCodecID) ?? CaptureAudioCodec.default.id
 		hotkey = try container.decode(Hotkey.self, forKey: .hotkey)
@@ -191,6 +191,43 @@ struct AppSettings: Codable {
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(replayDuration, forKey: .replayDuration)
+		try container.encodeIfPresent(resolutionID, forKey: .resolutionID)
+
+		let qualityToStore: String? = qualityID == QualityPreset.default.id ? nil : qualityID
+		try container.encodeIfPresent(qualityToStore, forKey: .qualityID)
+		let frameRateToStore: Int? = frameRate == CaptureFrameRate.default.framesPerSecond ? nil : frameRate
+		try container.encodeIfPresent(frameRateToStore, forKey: .frameRate)
+		let containerToStore: String? = containerID == CaptureContainer.default.id ? nil : containerID
+		try container.encodeIfPresent(containerToStore, forKey: .containerID)
+		let audioCodecToStore: String? = audioCodecID == CaptureAudioCodec.default.id ? nil : audioCodecID
+		try container.encodeIfPresent(audioCodecToStore, forKey: .audioCodecID)
+
+		try container.encode(hotkey, forKey: .hotkey)
+		try container.encode(startRecordingHotkey, forKey: .startRecordingHotkey)
+		try container.encode(alwaysRecordEnabled, forKey: .alwaysRecordEnabled)
+		try container.encode(saveFeedbackEnabled, forKey: .saveFeedbackEnabled)
+		try container.encode(saveFeedbackVolume, forKey: .saveFeedbackVolume)
+		try container.encode(saveFeedbackSoundID, forKey: .saveFeedbackSoundID)
+		try container.encode(recordingStartFeedbackEnabled, forKey: .recordingStartFeedbackEnabled)
+		try container.encode(recordingStartFeedbackVolume, forKey: .recordingStartFeedbackVolume)
+		try container.encode(recordingStartFeedbackSoundID, forKey: .recordingStartFeedbackSoundID)
+		try container.encode(recordingEndFeedbackEnabled, forKey: .recordingEndFeedbackEnabled)
+		try container.encode(recordingEndFeedbackVolume, forKey: .recordingEndFeedbackVolume)
+		try container.encode(recordingEndFeedbackSoundID, forKey: .recordingEndFeedbackSoundID)
+		try container.encode(errorFeedbackEnabled, forKey: .errorFeedbackEnabled)
+		try container.encode(errorFeedbackVolume, forKey: .errorFeedbackVolume)
+		try container.encode(errorFeedbackSoundID, forKey: .errorFeedbackSoundID)
+		try container.encode(discordRPCEnabled, forKey: .discordRPCEnabled)
+		try container.encode(useBFrames, forKey: .useBFrames)
+		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
+		try container.encode(catboxEnabled, forKey: .catboxEnabled)
+		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)
+		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
 	}
 
 	var qualityPreset: QualityPreset {
@@ -236,6 +273,9 @@ enum AppSettingsStorage {
 			guard isValid(decoded) else {
 				UserDefaults.standard.removeObject(forKey: key)
 				return .default
+			}
+			if let normalized = try? JSONEncoder().encode(decoded), normalized != data {
+				UserDefaults.standard.set(normalized, forKey: key)
 			}
 			return decoded
 		}
