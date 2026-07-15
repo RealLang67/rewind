@@ -53,6 +53,26 @@ final class ClipLibrary: ObservableObject {
 		}
 	}
 
+	func deleteClip(_ clip: Clip) async {
+		do {
+			try await store.delete(id: clip.id)
+		} catch {
+			AppLog.error(.library, "Unable to delete clip from store:", error)
+			return
+		}
+
+		let fm = FileManager.default
+		if clip.url.isFileURL, fm.fileExists(atPath: clip.url.path) {
+			do {
+				try fm.removeItem(at: clip.url)
+			} catch {
+				AppLog.error(.library, "Deleted clip row but failed to remove file:", error)
+			}
+		}
+
+		clips.removeAll { $0.id == clip.id }
+	}
+
 	private func load() async {
 		isLoading = true
 		loadError = nil

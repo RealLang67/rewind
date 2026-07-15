@@ -41,9 +41,14 @@ struct HomeView: View {
 							Button {
 								selectedClip = clip
 							} label: {
-								ClipCard(clip: clip) {
+								ClipCard(clip: clip, onFavorite: {
 									appState.clipLibrary.toggleFavorite(clip: clip)
-								}
+								}, onDelete: {
+									if selectedClip?.id == clip.id {
+										selectedClip = nil
+									}
+									Task { await appState.clipLibrary.deleteClip(clip) }
+								})
 								.overlay(
 									RoundedRectangle(cornerRadius: 8)
 										.stroke(selectedClip?.id == clip.id ? Color.accentColor : Color.clear, lineWidth: 3)
@@ -72,7 +77,9 @@ struct HomeView: View {
 struct ClipCard: View {
 	let clip: Clip
 	let onFavorite: () -> Void
+	let onDelete: () -> Void
 	@State private var thumbnail: NSImage?
+	@State private var showDeleteConfirmation = false
 
 	var body: some View {
 		VStack {
@@ -90,14 +97,27 @@ struct ClipCard: View {
 						.foregroundStyle(.secondary)
 				}
 
-				Button(action: onFavorite) {
-					Image(systemName: clip.isFavorite ? "heart.fill" : "heart")
-						.foregroundStyle(clip.isFavorite ? .red : .white)
-						.padding(6)
-						.background(Color.black.opacity(0.5))
-						.clipShape(Circle())
+				HStack(spacing: 6) {
+					Button(action: onFavorite) {
+						Image(systemName: clip.isFavorite ? "heart.fill" : "heart")
+							.foregroundStyle(clip.isFavorite ? .red : .white)
+							.padding(6)
+							.background(Color.black.opacity(0.5))
+							.clipShape(Circle())
+					}
+					.buttonStyle(.plain)
+
+					Button {
+						showDeleteConfirmation = true
+					} label: {
+						Image(systemName: "trash")
+							.foregroundStyle(.white)
+							.padding(6)
+							.background(Color.black.opacity(0.5))
+							.clipShape(Circle())
+					}
+					.buttonStyle(.plain)
 				}
-				.buttonStyle(.plain)
 				.padding(8)
 			}
 			.aspectRatio(16/9, contentMode: .fit)
@@ -105,6 +125,12 @@ struct ClipCard: View {
 
 			Text(clip.createdAt, style: .date)
 				.font(.caption)
+		}
+		.confirmationDialog("Delete this clip?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+			Button("Delete", role: .destructive, action: onDelete)
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("This permanently deletes the clip file from disk.")
 		}
 		.task(id: clip.id) {
 			if thumbnail == nil {

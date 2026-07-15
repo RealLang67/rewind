@@ -102,6 +102,24 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertNotNil(library.loadError)
 	}
 
+	func testDeleteClipRemovesFileRowAndPublishedEntry() async throws {
+		let fileURL = try makeClipFileInMovies()
+		defer { try? FileManager.default.removeItem(at: fileURL) }
+		let clip = Clip(url: fileURL, duration: 5)
+		let store = TestClipStore(fetchResult: .success([clip]))
+
+		let library = ClipLibrary(store: store)
+		await waitForLoadCompletion(library)
+		XCTAssertEqual(library.clips.count, 1)
+
+		await library.deleteClip(clip)
+
+		XCTAssertTrue(library.clips.isEmpty)
+		XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+		let deleted = await store.deletedIDs()
+		XCTAssertEqual(deleted, [clip.id])
+	}
+
 	func testAddClipSavesToStoreAndPublishedCollection() async throws {
 		let store = TestClipStore(fetchResult: .success([]))
 		let library = ClipLibrary(store: store)
