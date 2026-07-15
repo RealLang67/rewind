@@ -184,6 +184,16 @@ enum AppLog {
 			diagnostics.append("Display \(index): \(screen.frame.width)x\(screen.frame.height)")
 		}
 
+		let settings = AppSettingsStorage.load()
+		diagnostics.append("--- Capture Settings ---")
+		diagnostics.append("Replay Duration: \(Int(settings.replayDuration))s")
+		diagnostics.append("Resolution: \(settings.resolutionID ?? "Native")")
+		diagnostics.append("Quality: \(settings.qualityPreset.label)")
+		diagnostics.append("Frame Rate: \(settings.frameRate) fps")
+		diagnostics.append("Container: \(settings.container.label)")
+		diagnostics.append("Audio Codec: \(settings.audioCodec.label)")
+		diagnostics.append("Record Microphone: \(settings.recordMicrophoneEnabled ? "Yes" : "No")")
+
 		diagnostics.append("--------------------------")
 		return diagnostics.joined(separator: "\n")
 	}
