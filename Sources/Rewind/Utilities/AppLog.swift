@@ -156,6 +156,7 @@ enum AppLog {
 		diagnostics.append("--- Rewind Diagnostics ---")
 
 		let processInfo = ProcessInfo.processInfo
+		diagnostics.append("Rewind Version: \(appVersion)")
 		diagnostics.append("OS Version: \(processInfo.operatingSystemVersionString)")
 
 		var size = 0
@@ -185,6 +186,27 @@ enum AppLog {
 
 		diagnostics.append("--------------------------")
 		return diagnostics.joined(separator: "\n")
+	}
+
+	private static var appVersion: String {
+		func normalized(_ value: String?) -> String? {
+			guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+				!trimmed.isEmpty
+			else { return nil }
+			return trimmed
+		}
+
+		let shortVersion = normalized(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+			?? normalized(ProcessInfo.processInfo.environment["REWIND_VERSION"])
+		let buildVersion = normalized(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
+
+		if let shortVersion {
+			if let buildVersion, buildVersion != shortVersion {
+				return "\(shortVersion) (\(buildVersion))"
+			}
+			return shortVersion
+		}
+		return buildVersion ?? "Dev"
 	}
 
 	private static let subsystem: String = Bundle.main.bundleIdentifier ?? "Rewind"
