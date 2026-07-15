@@ -57,13 +57,30 @@ final class ClipLibrary: ObservableObject {
 		isLoading = true
 		loadError = nil
 		do {
-			clips = try await store.fetchAll()
+			clips = await pruningMissingFiles(from: try await store.fetchAll())
 		} catch {
 			loadError = error
 			clips = []
 			AppLog.error(.library, "ClipLibrary: failed to load clips:", error)
 		}
 		isLoading = false
+	}
+
+	private func pruningMissingFiles(from stored: [Clip]) async -> [Clip] {
+		let fm = FileManager.default
+		var surviving: [Clip] = []
+		for clip in stored {
+			guard clip.url.isFileURL, !fm.fileExists(atPath: clip.url.path) else {
+				surviving.append(clip)
+				continue
+			}
+			do {
+				try await store.delete(id: clip.id)
+			} catch {
+				AppLog.error(.library, "ClipLibrary: failed to prune missing clip:", error)
+			}
+		}
+		return surviving
 	}
 
 	private func ensureExported(url: URL) throws -> URL {
@@ -94,6 +111,7 @@ final class ClipLibrary: ObservableObject {
 protocol ClipStore: Actor {
 	func fetchAll() async throws -> [Clip]
 	func save(clip: Clip) async throws -> Clip
+	func delete(id: UUID) async throws
 }
 
 enum ClipStoreError: Error {
@@ -197,6 +215,22 @@ actor SQLiteClipStore: ClipStore {
 			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
 		}
 		return clip
+	}
+
+	func delete(id: UUID) async throws {
+		guard let db = db.pointer else { throw ClipStoreError.sqliteFailure("Database unavailable") }
+		let sql = "DELETE FROM clips WHERE id = ?;"
+		var statement: OpaquePointer?
+		guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
+		}
+		defer { sqlite3_finalize(statement) }
+
+		bindText(statement, 1, id.uuidString)
+
+		guard sqlite3_step(statement) == SQLITE_DONE else {
+			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
+		}
 	}
 
 	private static func openDB(at url: URL) -> OpaquePointer? {

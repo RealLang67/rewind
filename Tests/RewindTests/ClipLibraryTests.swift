@@ -5,6 +5,7 @@ import XCTest
 private actor TestClipStore: ClipStore {
 	private let fetchResult: Result<[Clip], Error>
 	private var saved: [Clip] = []
+	private var deleted: [UUID] = []
 
 	init(fetchResult: Result<[Clip], Error>) {
 		self.fetchResult = fetchResult
@@ -19,8 +20,16 @@ private actor TestClipStore: ClipStore {
 		return clip
 	}
 
+	func delete(id: UUID) async throws {
+		deleted.append(id)
+	}
+
 	func savedClips() -> [Clip] {
 		saved
+	}
+
+	func deletedIDs() -> [UUID] {
+		deleted
 	}
 }
 
@@ -50,8 +59,10 @@ final class ClipLibraryTests: XCTestCase {
 		return url
 	}
 
-	func testInitLoadsClipsFromStore() async {
-		let expectedClip = Clip(url: URL(fileURLWithPath: "/tmp/clip.mov"), duration: 12)
+	func testInitLoadsClipsFromStore() async throws {
+		let fileURL = try makeClipFileInMovies()
+		defer { try? FileManager.default.removeItem(at: fileURL) }
+		let expectedClip = Clip(url: fileURL, duration: 12)
 		let store = TestClipStore(fetchResult: .success([expectedClip]))
 
 		let library = ClipLibrary(store: store)
@@ -61,6 +72,24 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertEqual(library.clips.count, 1)
 		XCTAssertEqual(library.clips.first?.id, expectedClip.id)
 		XCTAssertEqual(library.clips.first?.url, expectedClip.url)
+		let deleted = await store.deletedIDs()
+		XCTAssertTrue(deleted.isEmpty)
+	}
+
+	func testInitPrunesClipsWhoseFileIsMissing() async throws {
+		let presentURL = try makeClipFileInMovies()
+		defer { try? FileManager.default.removeItem(at: presentURL) }
+		let presentClip = Clip(url: presentURL, duration: 10)
+		let missingClip = Clip(url: URL(fileURLWithPath: "/tmp/does-not-exist-\(UUID().uuidString).mov"), duration: 8)
+		let store = TestClipStore(fetchResult: .success([presentClip, missingClip]))
+
+		let library = ClipLibrary(store: store)
+		await waitForLoadCompletion(library)
+
+		XCTAssertNil(library.loadError)
+		XCTAssertEqual(library.clips.map(\.id), [presentClip.id])
+		let deleted = await store.deletedIDs()
+		XCTAssertEqual(deleted, [missingClip.id])
 	}
 
 	func testInitSetsLoadErrorWhenFetchFails() async {
