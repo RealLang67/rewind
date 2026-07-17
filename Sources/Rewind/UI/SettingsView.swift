@@ -400,6 +400,7 @@ private struct UploadSettingsPane: View {
 private struct AboutSettingsPane: View {
 	@ObservedObject var appState: AppState
 	@ObservedObject var updaterController: UpdaterController
+	@State private var showingResetConfirmation = false
 
 	private var appVersion: String {
 		let shortVersion = normalizedVersion(
@@ -455,9 +456,24 @@ private struct AboutSettingsPane: View {
 					}
 				}
 				.liquidGlassButtonStyle()
+
+				Button("Reset to Defaults...", role: .destructive) {
+					showingResetConfirmation = true
+				}
+				.liquidGlassButtonStyle()
 			}
 		}
 		.formStyle(.grouped)
+		.confirmationDialog(
+			"Reset all settings to their defaults?",
+			isPresented: $showingResetConfirmation,
+			titleVisibility: .visible
+		) {
+			Button("Reset to Defaults", role: .destructive) {
+				appState.resetToDefaults()
+			}
+			Button("Cancel", role: .cancel) {}
+		}
 	}
 }
 

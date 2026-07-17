@@ -386,6 +386,52 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	func resetToDefaults() {
+		let settings = AppSettings.default
+		let wasAlwaysRecording = alwaysRecordEnabled
+
+		isRestoringSettings = true
+		replayDuration = settings.replayDuration
+		selectedQuality = settings.qualityPreset
+		selectedFrameRate = settings.frameRateOption
+		selectedContainer = settings.container
+		selectedAudioCodec = settings.audioCodec
+		preferredResolutionID = settings.resolutionID
+		selectedResolution = availableResolutions.first(where: { $0.isNative })
+			?? availableResolutions.first
+		hotkey = settings.hotkey
+		startRecordingHotkey = settings.startRecordingHotkey
+		alwaysRecordEnabled = settings.alwaysRecordEnabled
+		saveFeedbackEnabled = settings.saveFeedbackEnabled
+		saveFeedbackVolume = settings.saveFeedbackVolume
+		saveFeedbackSound = settings.saveFeedbackSound
+		recordingStartFeedbackEnabled = settings.recordingStartFeedbackEnabled
+		recordingStartFeedbackVolume = settings.recordingStartFeedbackVolume
+		recordingStartFeedbackSound = settings.recordingStartFeedbackSound
+		recordingEndFeedbackEnabled = settings.recordingEndFeedbackEnabled
+		recordingEndFeedbackVolume = settings.recordingEndFeedbackVolume
+		recordingEndFeedbackSound = settings.recordingEndFeedbackSound
+		errorFeedbackEnabled = settings.errorFeedbackEnabled
+		errorFeedbackVolume = settings.errorFeedbackVolume
+		errorFeedbackSound = settings.errorFeedbackSound
+		discordRPCEnabled = settings.discordRPCEnabled
+		fileLoggingEnabled = settings.fileLoggingEnabled
+		catboxEnabled = settings.catboxEnabled
+		litterboxEnabled = settings.litterboxEnabled
+		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		isRestoringSettings = false
+
+		persistSettings()
+		AppLog.fileLoggingEnabled = fileLoggingEnabled
+		updateGlobalHotkeys()
+		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
+		if wasAlwaysRecording && !alwaysRecordEnabled && isCapturing {
+			Task { await stopCaptureAsync() }
+		} else {
+			restartCaptureSilently()
+		}
+	}
+
 	func startCapture(isAutomatic: Bool = false) {
 		Task { await startCaptureAsync(isAutomatic: isAutomatic) }
 	}
