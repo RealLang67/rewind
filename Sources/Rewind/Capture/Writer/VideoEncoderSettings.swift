@@ -2,9 +2,19 @@ import AVFoundation
 import CoreGraphics
 import VideoToolbox
 
-/// Builds the HEVC `AVAssetWriterInput` output settings and matching source
+/// Builds the video `AVAssetWriterInput` output settings and matching source
 /// pixel-buffer format for a given quality preset, resolution, and frame rate.
 enum VideoEncoderSettings {
+    /// intel's quick sync encoder rejects a second concurrent HEvc session
+    /// h264 does not have such limitation
+    static var codec: AVVideoCodecType {
+        #if arch(x86_64)
+            return .h264
+        #else
+            return .hevc
+        #endif
+    }
+
     /// Source pixel format handed to the pixel-buffer adaptor. Must match the
     /// format ScreenCaptureKit captures (NV12); declaring a different format here
     /// breaks the zero-copy path and forces a per-frame color conversion on the
@@ -21,7 +31,7 @@ enum VideoEncoderSettings {
         frameRate: Int
     ) -> [String: Any] {
         [
-            AVVideoCodecKey: AVVideoCodecType.hevc,
+            AVVideoCodecKey: codec,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: compressionProperties(
@@ -69,6 +79,10 @@ enum VideoEncoderSettings {
             AVVideoMaxKeyFrameIntervalDurationKey: 1.5,
             AVVideoAllowFrameReorderingKey: true,
         ]
+
+        if codec == .h264 {
+            props[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        }
 
         let isTesting =
             NSClassFromString("XCTestCase") != nil

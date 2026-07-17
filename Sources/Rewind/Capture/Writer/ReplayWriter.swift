@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreGraphics
+import RewindObjCSupport
 
 /// Encodes captured video/audio/mic sample buffers into a single `.mov` segment
 /// via `AVAssetWriter`. All state is confined to a single serial queue; the
@@ -160,66 +161,86 @@ final class ReplayWriter: @unchecked Sendable {
         try? FileManager.default.removeItem(at: outputURL)
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
-        let videoInput: AVAssetWriterInput
-        let adaptor: AVAssetWriterInputPixelBufferAdaptor?
+        var videoInput: AVAssetWriterInput!
+        var adaptor: AVAssetWriterInputPixelBufferAdaptor?
         var configuredSize: CGSize?
-        if videoMode == .pixelBufferEncode {
-            let width = Int(videoSize.width.rounded())
-            let height = Int(videoSize.height.rounded())
-            AppLog.debug(.writer, "ReplayWriter.configure video size:", width, "x", height)
-            configuredSize = CGSize(width: width, height: height)
-
-            let estimatedBitrate = VideoEncoderSettings.targetBitrateMbps(
-                for: quality, videoSize: CGSize(width: width, height: height), frameRate: frameRate)
-            AppLog.debug(
-                .writer, "ReplayWriter.configure codec: HEVC, preset:", quality.label,
-                "target bitrate:", String(format: "%.1f", estimatedBitrate), "Mbps")
-
-            let videoSettings = VideoEncoderSettings.outputSettings(
-                quality: quality, width: width, height: height, frameRate: frameRate)
-            videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
-
-            let adaptorAttrs: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: Int(
-                    VideoEncoderSettings.sourcePixelFormat(for: quality)),
-                kCVPixelBufferWidthKey as String: width,
-                kCVPixelBufferHeightKey as String: height,
-                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
-            ]
-            adaptor = AVAssetWriterInputPixelBufferAdaptor(
-                assetWriterInput: videoInput, sourcePixelBufferAttributes: adaptorAttrs)
-        } else {
-            AppLog.debug(.writer, "ReplayWriter.configure video mode: passthrough")
-            videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: nil)
-            adaptor = nil
-            configuredSize = nil
-        }
-        videoInput.expectsMediaDataInRealTime = true
-        guard writer.canAdd(videoInput) else {
-            throw CaptureError.exportFailed
-        }
-        writer.add(videoInput)
-
         var audioInput: AVAssetWriterInput?
         var micAudio: AVAssetWriterInput?
-        if includeAudio {
-            let primaryAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-            if recordMicrophone {
-                micAudio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-                micAudio?.expectsMediaDataInRealTime = true
+        var configError: CaptureError?
+        do {
+            try RewindExceptionCatcher.catchException {
+                if videoMode == .pixelBufferEncode {
+                    let width = Int(videoSize.width.rounded())
+                    let height = Int(videoSize.height.rounded())
+                    AppLog.debug(.writer, "ReplayWriter.configure video size:", width, "x", height)
+                    configuredSize = CGSize(width: width, height: height)
+
+                    let estimatedBitrate = VideoEncoderSettings.targetBitrateMbps(
+                        for: quality, videoSize: CGSize(width: width, height: height),
+                        frameRate: frameRate)
+                    AppLog.debug(
+                        .writer, "ReplayWriter.configure codec:", VideoEncoderSettings.codec.rawValue,
+                        "preset:", quality.label,
+                        "target bitrate:", String(format: "%.1f", estimatedBitrate), "Mbps")
+
+                    let videoSettings = VideoEncoderSettings.outputSettings(
+                        quality: quality, width: width, height: height, frameRate: frameRate)
+                    let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+
+                    let adaptorAttrs: [String: Any] = [
+                        kCVPixelBufferPixelFormatTypeKey as String: Int(
+                            VideoEncoderSettings.sourcePixelFormat(for: quality)),
+                        kCVPixelBufferWidthKey as String: width,
+                        kCVPixelBufferHeightKey as String: height,
+                        kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+                    ]
+                    adaptor = AVAssetWriterInputPixelBufferAdaptor(
+                        assetWriterInput: input, sourcePixelBufferAttributes: adaptorAttrs)
+                    input.expectsMediaDataInRealTime = true
+                    videoInput = input
+                } else {
+                    AppLog.debug(.writer, "ReplayWriter.configure video mode: passthrough")
+                    let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil)
+                    input.expectsMediaDataInRealTime = true
+                    videoInput = input
+                }
+
+                guard writer.canAdd(videoInput) else {
+                    configError = .exportFailed
+                    return
+                }
+                writer.add(videoInput)
+
+                if includeAudio {
+                    let primaryAudio = AVAssetWriterInput(
+                        mediaType: .audio, outputSettings: audioSettings)
+                    if recordMicrophone {
+                        let mic = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                        mic.expectsMediaDataInRealTime = true
+                        micAudio = mic
+                    }
+                    primaryAudio.expectsMediaDataInRealTime = true
+                    if writer.canAdd(primaryAudio) {
+                        writer.add(primaryAudio)
+                        audioInput = primaryAudio
+                        if let micAudio, writer.canAdd(micAudio) { writer.add(micAudio) }
+                    } else {
+                        AppLog.debug(
+                            .writer, "ReplayWriter.configure: cannot add audio input with settings:",
+                            audioSettings ?? [:])
+                        micAudio = nil
+                    }
+                }
             }
-            primaryAudio.expectsMediaDataInRealTime = true
-            if writer.canAdd(primaryAudio) {
-                writer.add(primaryAudio)
-                audioInput = primaryAudio
-                if let micAudio, writer.canAdd(micAudio) { writer.add(micAudio) }
-            } else {
-                AppLog.debug(
-                    .writer, "ReplayWriter.configure: cannot add audio input with settings:",
-                    audioSettings ?? [:])
-                micAudio = nil
-            }
+        } catch {
+            AppLog.error(
+                .writer,
+                "ReplayWriter.configure caught encoder exception; aborting writer setup",
+                error: error)
+            throw CaptureError.exportFailed
         }
+
+        if let configError { throw configError }
 
         self.writer = writer
         self.videoInput = videoInput

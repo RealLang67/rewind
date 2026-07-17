@@ -11,10 +11,15 @@ let package = Package(
 		.package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.2"),
 	],
 	targets: [
+		.target(
+			name: "RewindObjCSupport",
+			path: "Sources/RewindObjCSupport"
+		),
 		.executableTarget(
 			name: "Rewind",
 			dependencies: [
 				.product(name: "Sparkle", package: "Sparkle"),
+				"RewindObjCSupport",
 			],
 			path: "Sources/Rewind",
 			linkerSettings: [
