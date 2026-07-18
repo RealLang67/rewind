@@ -126,19 +126,20 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertEqual(deleted, [clip.id])
 	}
 
-	func testAddClipSavesToStoreAndPublishedCollection() async throws {
+	func testAddClipStoresGivenURLUnchanged() async throws {
 		let folder = try makeTempFolder()
 		defer { try? FileManager.default.removeItem(at: folder) }
 		let store = TestClipStore(fetchResult: .success([]))
-		let library = ClipLibrary(store: store, outputDirectory: { folder })
+		let library = ClipLibrary(store: store)
 		await waitForLoadCompletion(library)
 
 		let sourceURL = try makeClipFile(in: folder)
 
 		let clip = try await library.addClip(url: sourceURL, duration: 27.5)
 
-		XCTAssertEqual(clip.url, sourceURL)
+		XCTAssertEqual(clip.url, sourceURL, "The library records the clip where the exporter wrote it")
 		XCTAssertEqual(clip.duration, 27.5)
+		XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
 		XCTAssertEqual(library.clips.count, 1)
 		XCTAssertEqual(library.clips.first?.id, clip.id)
 
@@ -146,42 +147,5 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertEqual(saved.count, 1)
 		XCTAssertEqual(saved.first?.id, clip.id)
 		XCTAssertEqual(saved.first?.duration, 27.5)
-	}
-
-	func testAddClipKeepsFileInCustomOutputDirectory() async throws {
-		let customFolder = try makeTempFolder()
-		defer { try? FileManager.default.removeItem(at: customFolder) }
-		let store = TestClipStore(fetchResult: .success([]))
-		let library = ClipLibrary(store: store, outputDirectory: { customFolder })
-		await waitForLoadCompletion(library)
-
-		let sourceURL = try makeClipFile(in: customFolder)
-
-		let clip = try await library.addClip(url: sourceURL, duration: 12)
-
-		XCTAssertEqual(clip.url, sourceURL, "A clip already in the configured folder must not be relocated")
-		XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
-	}
-
-	func testAddClipRelocatesFileFromOutsideConfiguredDirectory() async throws {
-		let configuredFolder = try makeTempFolder()
-		let externalFolder = try makeTempFolder()
-		defer {
-			try? FileManager.default.removeItem(at: configuredFolder)
-			try? FileManager.default.removeItem(at: externalFolder)
-		}
-		let store = TestClipStore(fetchResult: .success([]))
-		let library = ClipLibrary(store: store, outputDirectory: { configuredFolder })
-		await waitForLoadCompletion(library)
-
-		let sourceURL = try makeClipFile(in: externalFolder)
-
-		let clip = try await library.addClip(url: sourceURL, duration: 8)
-
-		XCTAssertTrue(
-			ClipStorageLocation.contains(clip.url, folder: configuredFolder),
-			"A clip added from outside the configured folder must be moved into it")
-		XCTAssertTrue(FileManager.default.fileExists(atPath: clip.url.path))
-		XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
 	}
 }
