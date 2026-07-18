@@ -309,6 +309,14 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var outputDirectoryPath: String? {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard outputDirectoryPath != oldValue else { return }
+			persistSettings()
+		}
+	}
+
 	@Published private(set) var lowStorageWarningMessage: String?
 
 	private let captureManager: CaptureManager
@@ -368,6 +376,7 @@ final class AppState: ObservableObject {
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
@@ -419,6 +428,7 @@ final class AppState: ObservableObject {
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 
 		persistSettings()
@@ -740,7 +750,8 @@ final class AppState: ObservableObject {
 				fileLoggingEnabled: fileLoggingEnabled,
 				catboxEnabled: catboxEnabled,
 				litterboxEnabled: litterboxEnabled,
-				recordMicrophoneEnabled: recordMicrophoneEnabled
+				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				outputDirectoryPath: outputDirectoryPath
 			)
 		)
 	}

@@ -33,6 +33,7 @@ struct AppSettings: Codable {
 	var catboxEnabled: Bool
 	var litterboxEnabled: Bool
 	var recordMicrophoneEnabled: Bool
+	var outputDirectoryPath: String?
 
 	static let `default` = AppSettings(
 		replayDuration: 30,
@@ -60,7 +61,8 @@ struct AppSettings: Codable {
 		fileLoggingEnabled: false,
 		catboxEnabled: false,
 		litterboxEnabled: false,
-		recordMicrophoneEnabled: false
+		recordMicrophoneEnabled: false,
+		outputDirectoryPath: nil
 	)
 
 	private enum CodingKeys: String, CodingKey {
@@ -90,6 +92,7 @@ struct AppSettings: Codable {
 		case catboxEnabled
 		case litterboxEnabled
 		case recordMicrophoneEnabled
+		case outputDirectoryPath
 	}
 
 	init(
@@ -118,7 +121,8 @@ struct AppSettings: Codable {
 		fileLoggingEnabled: Bool,
 		catboxEnabled: Bool,
 		litterboxEnabled: Bool,
-		recordMicrophoneEnabled: Bool
+		recordMicrophoneEnabled: Bool,
+		outputDirectoryPath: String?
 	) {
 		self.replayDuration = replayDuration
 		self.resolutionID = resolutionID
@@ -146,6 +150,7 @@ struct AppSettings: Codable {
 		self.catboxEnabled = catboxEnabled
 		self.litterboxEnabled = litterboxEnabled
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
+		self.outputDirectoryPath = outputDirectoryPath
 	}
 
 	init(from decoder: Decoder) throws {
@@ -185,6 +190,7 @@ struct AppSettings: Codable {
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
+		outputDirectoryPath = try container.decodeIfPresent(String.self, forKey: .outputDirectoryPath)
 	}
 
 	func encode(to encoder: Encoder) throws {
@@ -221,6 +227,7 @@ struct AppSettings: Codable {
 		try container.encode(catboxEnabled, forKey: .catboxEnabled)
 		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
+		try container.encodeIfPresent(outputDirectoryPath, forKey: .outputDirectoryPath)
 	}
 
 	var qualityPreset: QualityPreset {

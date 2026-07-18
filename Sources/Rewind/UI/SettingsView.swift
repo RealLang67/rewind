@@ -150,6 +150,27 @@ private struct CaptureSettingsPane: View {
 			.disabled(settingsLocked)
 
 			Section("Output") {
+				LabeledContent("Save location") {
+					HStack(spacing: 8) {
+						Text(appState.outputDirectoryPath ?? "Movies/Rewind")
+							.lineLimit(1)
+							.truncationMode(.middle)
+							.foregroundStyle(.secondary)
+							.frame(maxWidth: 160, alignment: .trailing)
+
+						Button("Change...") {
+							let panel = NSOpenPanel()
+							panel.canChooseFiles = false
+							panel.canChooseDirectories = true
+							panel.canCreateDirectories = true
+							if panel.runModal() == .OK, let url = panel.url {
+								appState.outputDirectoryPath = url.path
+							}
+						}
+						.controlSize(.small)
+					}
+				}
+
 				Picker(selection: $appState.selectedContainer) {
 					ForEach(CaptureContainer.options) { option in
 						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
