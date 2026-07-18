@@ -72,7 +72,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			fileLoggingEnabled: false,
 			catboxEnabled: true,
 			litterboxEnabled: false,
-			recordMicrophoneEnabled: true
+			recordMicrophoneEnabled: true,
+			outputDirectoryPath: "/Users/example/Desktop/Clips"
 		)
 
 		AppSettingsStorage.save(expected)
@@ -104,6 +105,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.catboxEnabled, expected.catboxEnabled)
 		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
+		XCTAssertEqual(loaded.outputDirectoryPath, expected.outputDirectoryPath)
 	}
 
 	func testLoadClearsStoredValuesAndReturnsDefaultWhenStoredSettingsAreInvalid() throws {
@@ -133,7 +135,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			fileLoggingEnabled: false,
 			catboxEnabled: false,
 			litterboxEnabled: false,
-			recordMicrophoneEnabled: true
+			recordMicrophoneEnabled: true,
+			outputDirectoryPath: nil
 		)
 		let data = try JSONEncoder().encode(invalid)
 		UserDefaults.standard.set(data, forKey: storageKey)
@@ -225,7 +228,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
-			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
+			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 
 		AppSettingsStorage.save(invalid)
@@ -272,7 +276,8 @@ final class AppSettingsStorageTests: XCTestCase {
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
-			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
+			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 	}
 

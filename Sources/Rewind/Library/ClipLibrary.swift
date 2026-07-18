@@ -22,8 +22,7 @@ final class ClipLibrary: ObservableObject {
 	}
 
 	func addClip(url: URL, duration: TimeInterval) async throws -> Clip {
-		let exportedURL = try ensureExported(url: url)
-		var clip = Clip(url: exportedURL, duration: duration)
+		var clip = Clip(url: url, duration: duration)
 		clip = try await store.save(clip: clip)
 		clips.insert(clip, at: 0)
 		return clip
@@ -103,29 +102,6 @@ final class ClipLibrary: ObservableObject {
 		return surviving
 	}
 
-	private func ensureExported(url: URL) throws -> URL {
-		let fm = FileManager.default
-		let moviesFolder = fm.urls(for: .moviesDirectory, in: .userDomainMask).first?
-			.appendingPathComponent("Rewind", isDirectory: true)
-			?? fm.temporaryDirectory.appendingPathComponent("Rewind", isDirectory: true)
-		try fm.createDirectory(at: moviesFolder, withIntermediateDirectories: true)
-
-		if url.path.hasPrefix(moviesFolder.path + "/") {
-			return url
-		}
-
-		let baseName = url.deletingPathExtension().lastPathComponent
-		let ext = url.pathExtension.isEmpty ? "mov" : url.pathExtension
-		let uniqueName = "\(baseName)_\(Int(Date().timeIntervalSince1970)).\(ext)"
-		let targetURL = moviesFolder.appendingPathComponent(uniqueName)
-
-		do {
-			try fm.moveItem(at: url, to: targetURL)
-		} catch {
-			try fm.copyItem(at: url, to: targetURL)
-		}
-		return targetURL
-	}
 }
 
 protocol ClipStore: Actor {

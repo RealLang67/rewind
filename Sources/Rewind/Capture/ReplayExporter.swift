@@ -87,17 +87,7 @@ struct ReplayExporter {
         let timeRange = CMTimeRange(
             start: startTime, duration: CMTime(seconds: clipSeconds, preferredTimescale: timescale))
 
-        let defaultFolder =
-            FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Rewind", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent(
-                "Rewind", isDirectory: true)
-        let folder: URL
-        if let customPath = AppSettingsStorage.load().outputDirectoryPath {
-            folder = URL(fileURLWithPath: customPath)
-        } else {
-            folder = defaultFolder
-        }
+        let folder = ClipStorageLocation.current()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let exportURL = folder.appendingPathComponent(
             "Rewind_\(UUID().uuidString).\(container.fileExtension)")

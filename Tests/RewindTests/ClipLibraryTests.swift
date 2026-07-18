@@ -48,14 +48,20 @@ final class ClipLibraryTests: XCTestCase {
 	}
 
 	private func makeClipFileInMovies() throws -> URL {
-		let fm = FileManager.default
-		let moviesFolder = fm.urls(for: .moviesDirectory, in: .userDomainMask).first?
-			.appendingPathComponent("Rewind", isDirectory: true)
-			?? fm.temporaryDirectory.appendingPathComponent("Rewind", isDirectory: true)
-		try fm.createDirectory(at: moviesFolder, withIntermediateDirectories: true)
+		try makeClipFile(in: ClipStorageLocation.defaultFolder)
+	}
 
-		let url = moviesFolder.appendingPathComponent("ClipLibraryTests-\(UUID().uuidString).mov")
-		fm.createFile(atPath: url.path, contents: Data([1, 2, 3]))
+	private func makeTempFolder() throws -> URL {
+		let folder = FileManager.default.temporaryDirectory
+			.appendingPathComponent("ClipLibraryTests-\(UUID().uuidString)", isDirectory: true)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		return folder
+	}
+
+	private func makeClipFile(in folder: URL) throws -> URL {
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		let url = folder.appendingPathComponent("ClipLibraryTests-\(UUID().uuidString).mov")
+		FileManager.default.createFile(atPath: url.path, contents: Data([1, 2, 3]))
 		return url
 	}
 
@@ -121,12 +127,13 @@ final class ClipLibraryTests: XCTestCase {
 	}
 
 	func testAddClipSavesToStoreAndPublishedCollection() async throws {
+		let folder = try makeTempFolder()
+		defer { try? FileManager.default.removeItem(at: folder) }
 		let store = TestClipStore(fetchResult: .success([]))
-		let library = ClipLibrary(store: store)
+		let library = ClipLibrary(store: store, outputDirectory: { folder })
 		await waitForLoadCompletion(library)
 
-		let sourceURL = try makeClipFileInMovies()
-		defer { try? FileManager.default.removeItem(at: sourceURL) }
+		let sourceURL = try makeClipFile(in: folder)
 
 		let clip = try await library.addClip(url: sourceURL, duration: 27.5)
 
@@ -139,5 +146,42 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertEqual(saved.count, 1)
 		XCTAssertEqual(saved.first?.id, clip.id)
 		XCTAssertEqual(saved.first?.duration, 27.5)
+	}
+
+	func testAddClipKeepsFileInCustomOutputDirectory() async throws {
+		let customFolder = try makeTempFolder()
+		defer { try? FileManager.default.removeItem(at: customFolder) }
+		let store = TestClipStore(fetchResult: .success([]))
+		let library = ClipLibrary(store: store, outputDirectory: { customFolder })
+		await waitForLoadCompletion(library)
+
+		let sourceURL = try makeClipFile(in: customFolder)
+
+		let clip = try await library.addClip(url: sourceURL, duration: 12)
+
+		XCTAssertEqual(clip.url, sourceURL, "A clip already in the configured folder must not be relocated")
+		XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+	}
+
+	func testAddClipRelocatesFileFromOutsideConfiguredDirectory() async throws {
+		let configuredFolder = try makeTempFolder()
+		let externalFolder = try makeTempFolder()
+		defer {
+			try? FileManager.default.removeItem(at: configuredFolder)
+			try? FileManager.default.removeItem(at: externalFolder)
+		}
+		let store = TestClipStore(fetchResult: .success([]))
+		let library = ClipLibrary(store: store, outputDirectory: { configuredFolder })
+		await waitForLoadCompletion(library)
+
+		let sourceURL = try makeClipFile(in: externalFolder)
+
+		let clip = try await library.addClip(url: sourceURL, duration: 8)
+
+		XCTAssertTrue(
+			ClipStorageLocation.contains(clip.url, folder: configuredFolder),
+			"A clip added from outside the configured folder must be moved into it")
+		XCTAssertTrue(FileManager.default.fileExists(atPath: clip.url.path))
+		XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
 	}
 }
