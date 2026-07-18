@@ -47,7 +47,7 @@ enum VideoEncoderSettings {
     {
         let width = max(1, Int(videoSize.width.rounded()))
         let height = max(1, Int(videoSize.height.rounded()))
-        let fps = max(30, min(frameRate, 60))
+        let fps = max(30, min(frameRate, 120))
 
         let pixelsPerFrame = Double(width * height)
         let bitsPerSecond = quality.bitsPerPixel * pixelsPerFrame * Double(fps)
@@ -60,7 +60,7 @@ enum VideoEncoderSettings {
         videoSize: CGSize,
         frameRate: Int
     ) -> [String: Any] {
-        let normalizedFrameRate = max(30, min(frameRate, 60))
+        let normalizedFrameRate = max(30, min(frameRate, 120))
         let averageBitrateMbps = targetBitrateMbps(
             for: quality, videoSize: videoSize, frameRate: normalizedFrameRate)
         let averageBitrate = Int((averageBitrateMbps * 1_000_000).rounded())

@@ -21,7 +21,13 @@ struct CaptureFrameRate: Hashable, Identifiable {
 		description: "Smoother motion, larger files"
 	)
 
-	static let options: [CaptureFrameRate] = [fps30, fps60]
+	static let fps120 = CaptureFrameRate(
+		framesPerSecond: 120,
+		label: "120 FPS",
+		description: "smooth operator"
+	)
+
+	static let options: [CaptureFrameRate] = [fps30, fps60, fps120]
 	static let `default` = fps60
 
 	var isDefault: Bool { framesPerSecond == CaptureFrameRate.default.framesPerSecond }

@@ -175,7 +175,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		}
 		config.capturesAudio = true
 		// user controlled
-		let clampedFrameRate = max(30, min(frameRate, 60))
+		let clampedFrameRate = max(30, min(frameRate, 120))
 		config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(clampedFrameRate))
 		config.showsCursor = true
 
