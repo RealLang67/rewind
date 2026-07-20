@@ -193,6 +193,7 @@ enum AppLog {
 		diagnostics.append("Container: \(settings.container.label)")
 		diagnostics.append("Audio Codec: \(settings.audioCodec.label)")
 		diagnostics.append("Record Microphone: \(settings.recordMicrophoneEnabled ? "Yes" : "No")")
+		diagnostics.append("Record Desktop Audio: \(settings.recordDesktopAudioEnabled ? "Yes" : "No")")
 
 		diagnostics.append("--------------------------")
 		return diagnostics.joined(separator: "\n")

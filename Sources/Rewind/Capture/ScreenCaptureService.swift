@@ -70,7 +70,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		resolution: CaptureResolution? = nil,
 		quality: QualityPreset = .default,
 		frameRate: Int = CaptureFrameRate.default.framesPerSecond,
-		recordMicrophone: Bool = false
+		recordMicrophone: Bool = false,
+		recordDesktopAudio: Bool = true
 	) async throws {
 		guard stream == nil else { return }
 
@@ -173,7 +174,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		if #available(macOS 14.0, *) {
 			config.colorSpaceName = CGColorSpace.sRGB
 		}
-		config.capturesAudio = true
+		config.capturesAudio = recordDesktopAudio
 		// user controlled
 		let clampedFrameRate = max(30, min(frameRate, 120))
 		config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(clampedFrameRate))
@@ -205,9 +206,11 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		try stream.addStreamOutput(
 			self, type: SCStreamOutputType.screen, sampleHandlerQueue: videoQueue
 		)
-				try stream.addStreamOutput(
-			self, type: SCStreamOutputType.audio, sampleHandlerQueue: audioQueue
-		)
+		if recordDesktopAudio {
+			try stream.addStreamOutput(
+				self, type: SCStreamOutputType.audio, sampleHandlerQueue: audioQueue
+			)
+		}
 		if #available(macOS 15.0, *) {
 			if recordMicrophone {
 				try stream.addStreamOutput(

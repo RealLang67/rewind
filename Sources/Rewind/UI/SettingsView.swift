@@ -13,6 +13,9 @@ struct SettingsView: View {
 
 	var body: some View {
 		TabView {
+			GeneralSettingsPane(appState: appState)
+				.tabItem { Label("General", systemImage: "gearshape") }
+
 			CaptureSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Capture", systemImage: "record.circle") }
 
@@ -60,6 +63,25 @@ struct SettingsView: View {
 	}
 }
 
+private struct GeneralSettingsPane: View {
+	@ObservedObject var appState: AppState
+
+	var body: some View {
+		Form {
+			Section("Startup") {
+				LabeledContent {
+					Toggle("", isOn: $appState.launchAtLoginEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Open on login", help: "Automatically launch Rewind when you log in to your Mac.")
+				}
+			}
+		}
+		.formStyle(.grouped)
+	}
+}
+
 private struct CaptureSettingsPane: View {
 	@ObservedObject var appState: AppState
 	let settingsLocked: Bool
@@ -84,16 +106,6 @@ private struct CaptureSettingsPane: View {
 
 	var body: some View {
 		Form {
-			Section("General") {
-				LabeledContent {
-					Toggle("", isOn: $appState.launchAtLoginEnabled)
-						.labelsHidden()
-						.toggleStyle(.switch)
-				} label: {
-					HelpLabel("Open on login", help: "Automatically launch Rewind when you log in to your Mac.")
-				}
-			}
-
 			Section("Recording") {
 				LabeledContent {
 					Stepper(
@@ -115,6 +127,14 @@ private struct CaptureSettingsPane: View {
 						.toggleStyle(.switch)
 				} label: {
 					HelpLabel("Always record", help: "Automatically saves clips continuously in the background.")
+				}
+
+				LabeledContent {
+					Toggle("", isOn: $appState.recordDesktopAudioEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Record desktop audio", help: "Captures system/app audio playing on your Mac.")
 				}
 
 				LabeledContent {

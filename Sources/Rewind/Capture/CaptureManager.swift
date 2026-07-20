@@ -28,6 +28,7 @@ actor CaptureManager {
     private var currentFrameRate: Int = CaptureFrameRate.default.framesPerSecond
     private var currentAudioCodec: CaptureAudioCodec = .default
     private var recordMicrophoneEnabled: Bool = false
+    private var recordDesktopAudioEnabled: Bool = true
     private var onCaptureInterrupted: (@MainActor (Error) -> Void)?
 
     /// thread-safe reference to current writer for use in callbacks
@@ -69,19 +70,22 @@ actor CaptureManager {
         quality: QualityPreset = .default,
         frameRate: Int = CaptureFrameRate.default.framesPerSecond,
         audioCodec: CaptureAudioCodec = .default,
-        recordMicrophoneEnabled: Bool = false
+        recordMicrophoneEnabled: Bool = false,
+        recordDesktopAudioEnabled: Bool = true
     ) async throws {
         guard !isRunning else { return }
         currentQuality = quality
         currentFrameRate = frameRate
         currentAudioCodec = audioCodec
         self.recordMicrophoneEnabled = recordMicrophoneEnabled
+        self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
         do {
             try await screenCapture.startCapture(
                 resolution: resolution,
                 quality: quality,
                 frameRate: frameRate,
-                recordMicrophone: recordMicrophoneEnabled
+                recordMicrophone: recordMicrophoneEnabled,
+                recordDesktopAudio: recordDesktopAudioEnabled
             )
             try configureActiveWriter()
             currentWriter = activeWriter
@@ -165,7 +169,7 @@ actor CaptureManager {
         try activeWriter.configure(
             outputURL: outputURL,
             videoSize: size,
-            includeAudio: true,
+            includeAudio: recordDesktopAudioEnabled,
             audioSettings: captureAudioSettings,
             quality: currentQuality,
             frameRate: currentFrameRate,
@@ -182,7 +186,7 @@ actor CaptureManager {
             try writer.configure(
                 outputURL: outputURL,
                 videoSize: size,
-                includeAudio: true,
+                includeAudio: recordDesktopAudioEnabled,
                 audioSettings: captureAudioSettings,
                 quality: currentQuality,
                 frameRate: currentFrameRate,

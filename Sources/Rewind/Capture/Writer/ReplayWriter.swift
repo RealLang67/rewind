@@ -214,21 +214,25 @@ final class ReplayWriter: @unchecked Sendable {
                 if includeAudio {
                     let primaryAudio = AVAssetWriterInput(
                         mediaType: .audio, outputSettings: audioSettings)
-                    if recordMicrophone {
-                        let mic = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-                        mic.expectsMediaDataInRealTime = true
-                        micAudio = mic
-                    }
                     primaryAudio.expectsMediaDataInRealTime = true
                     if writer.canAdd(primaryAudio) {
                         writer.add(primaryAudio)
                         audioInput = primaryAudio
-                        if let micAudio, writer.canAdd(micAudio) { writer.add(micAudio) }
                     } else {
                         AppLog.debug(
                             .writer, "ReplayWriter.configure: cannot add audio input with settings:",
                             audioSettings ?? [:])
-                        micAudio = nil
+                    }
+                }
+
+                // the microphone is an independent track: it must be available even
+                // when desktop audio is off, so it isnt nested under includeAudio
+                if recordMicrophone {
+                    let mic = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                    mic.expectsMediaDataInRealTime = true
+                    if writer.canAdd(mic) {
+                        writer.add(mic)
+                        micAudio = mic
                     }
                 }
             }

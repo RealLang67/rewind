@@ -303,6 +303,15 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var recordDesktopAudioEnabled = AppSettings.default.recordDesktopAudioEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard recordDesktopAudioEnabled != oldValue else { return }
+			persistSettings()
+			restartCaptureSilently()
+		}
+	}
+
 	@Published var fileLoggingEnabled = AppSettings.default.fileLoggingEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -399,6 +408,7 @@ final class AppState: ObservableObject {
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
@@ -451,6 +461,7 @@ final class AppState: ObservableObject {
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 
@@ -590,7 +601,8 @@ final class AppState: ObservableObject {
 				quality: selectedQuality,
 				frameRate: selectedFrameRate.framesPerSecond,
 				audioCodec: selectedAudioCodec,
-				recordMicrophoneEnabled: recordMicrophoneEnabled
+				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled
 			)
 			isCapturing = true
 			updateDiscordActivity(.recording(game: nil, joinURL: nil))
@@ -638,7 +650,8 @@ final class AppState: ObservableObject {
 					quality: selectedQuality,
 					frameRate: selectedFrameRate.framesPerSecond,
 					audioCodec: selectedAudioCodec,
-					recordMicrophoneEnabled: recordMicrophoneEnabled
+					recordMicrophoneEnabled: recordMicrophoneEnabled,
+					recordDesktopAudioEnabled: recordDesktopAudioEnabled
 				)
 			} catch {
 				isCapturing = false
@@ -834,6 +847,7 @@ final class AppState: ObservableObject {
 				catboxEnabled: catboxEnabled,
 				litterboxEnabled: litterboxEnabled,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
 				outputDirectoryPath: outputDirectoryPath
 			)
 		)
