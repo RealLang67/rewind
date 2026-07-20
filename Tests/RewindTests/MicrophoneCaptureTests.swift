@@ -96,6 +96,59 @@ final class MicrophoneCaptureTests: XCTestCase {
 		return sampleBuffer
 	}
 
+	private func makeFloatMicSampleBuffer(
+		pts: CMTime, channels: UInt32, sampleRate: Double = 48_000, numFrames: Int = 1024
+	) -> CMSampleBuffer? {
+		let bytesPerFrame = 4 * channels
+		var asbd = AudioStreamBasicDescription(
+			mSampleRate: sampleRate,
+			mFormatID: kAudioFormatLinearPCM,
+			mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+			mBytesPerPacket: bytesPerFrame,
+			mFramesPerPacket: 1,
+			mBytesPerFrame: bytesPerFrame,
+			mChannelsPerFrame: channels,
+			mBitsPerChannel: 32,
+			mReserved: 0
+		)
+		var formatDescription: CMAudioFormatDescription?
+		CMAudioFormatDescriptionCreate(
+			allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil,
+			magicCookieSize: 0, magicCookie: nil, extensions: nil,
+			formatDescriptionOut: &formatDescription)
+		guard let formatDescription else { return nil }
+
+		let dataLength = Int(bytesPerFrame) * numFrames
+		var blockBuffer: CMBlockBuffer?
+		CMBlockBufferCreateWithMemoryBlock(
+			allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: dataLength,
+			blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+			dataLength: dataLength, flags: 0, blockBufferOut: &blockBuffer)
+		guard let blockBuffer else { return nil }
+		CMBlockBufferFillDataBytes(
+			with: 0, blockBuffer: blockBuffer, offsetIntoDestination: 0, dataLength: dataLength)
+
+		var sampleBuffer: CMSampleBuffer?
+		var timing = CMSampleTimingInfo(
+			duration: CMTime(value: 1, timescale: CMTimeScale(sampleRate)),
+			presentationTimeStamp: pts, decodeTimeStamp: .invalid)
+		var sampleSize = size_t(bytesPerFrame)
+		CMSampleBufferCreateReady(
+			allocator: kCFAllocatorDefault, dataBuffer: blockBuffer,
+			formatDescription: formatDescription, sampleCount: numFrames,
+			sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1,
+			sampleSizeArray: &sampleSize, sampleBufferOut: &sampleBuffer)
+		return sampleBuffer
+	}
+
+	private var aacAudioSettings: [String: Any] {
+		[
+			AVFormatIDKey: kAudioFormatMPEG4AAC,
+			AVSampleRateKey: 48_000,
+			AVNumberOfChannelsKey: 2,
+		]
+	}
+
 	private func finishAndCountAudioTracks(_ writer: ReplayWriter) async throws -> Int {
 		let outputURL = try await writer.finishWriting()
 		defer { try? FileManager.default.removeItem(at: outputURL) }
@@ -184,6 +237,65 @@ final class MicrophoneCaptureTests: XCTestCase {
 		} catch {
 			XCTFail("Expected CaptureError, got \(type(of: error))")
 		}
+	}
+
+	func testConverterDownmixesMultichannelFloatMicToStereo() throws {
+		let converter = MicrophoneConverter(audioSettings: aacAudioSettings)
+		guard let micAudio = makeFloatMicSampleBuffer(pts: .zero, channels: 3) else {
+			XCTFail("failed to construct 3-channel mic buffer")
+			return
+		}
+
+		let converted = try XCTUnwrap(converter.convert(micAudio))
+		let desc = try XCTUnwrap(CMSampleBufferGetFormatDescription(converted))
+		let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee)
+		XCTAssertEqual(asbd.mChannelsPerFrame, 2)
+		XCTAssertEqual(asbd.mFormatID, kAudioFormatLinearPCM)
+		XCTAssertGreaterThan(CMSampleBufferGetNumSamples(converted), 0)
+	}
+
+	func testConverterConvertsMonoFloatMic() throws {
+		let converter = MicrophoneConverter(audioSettings: aacAudioSettings)
+		guard let micAudio = makeFloatMicSampleBuffer(pts: .zero, channels: 1) else {
+			XCTFail("failed to construct mono mic buffer")
+			return
+		}
+
+		let converted = try XCTUnwrap(converter.convert(micAudio))
+		let desc = try XCTUnwrap(CMSampleBufferGetFormatDescription(converted))
+		let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee)
+		XCTAssertEqual(asbd.mChannelsPerFrame, 2)
+	}
+
+	func testAppendMultichannelFloatMicWritesMicTrackWithoutCrashing() async throws {
+		let directory = try makeTempDirectory()
+		defer { try? FileManager.default.removeItem(at: directory) }
+
+		let writer = ReplayWriter(queue: DispatchQueue(label: "MicrophoneCaptureTests.multichannelMic"))
+		try writer.configure(
+			outputURL: directory.appendingPathComponent("multichannel-mic.mp4"),
+			videoSize: CGSize(width: 32, height: 32),
+			includeAudio: true,
+			audioSettings: aacAudioSettings,
+			recordMicrophone: true
+		)
+
+		guard let video = makeVideoSampleBuffer(pts: .zero),
+			let systemAudio = makeAudioSampleBuffer(pts: .zero),
+			let micAudio = makeFloatMicSampleBuffer(pts: .zero, channels: 3)
+		else {
+			XCTFail("failed to construct sample buffers")
+			return
+		}
+
+		writer.appendVideo(video)
+		writer.appendAudio(systemAudio)
+		writer.appendMic(micAudio)
+
+		try await Task.sleep(nanoseconds: 200_000_000)
+
+		let audioTrackCount = try await finishAndCountAudioTracks(writer)
+		XCTAssertEqual(audioTrackCount, 2, "expected separate system-audio and microphone tracks")
 	}
 
 	func testAppSettingsRoundTripsRecordMicrophoneEnabled() {

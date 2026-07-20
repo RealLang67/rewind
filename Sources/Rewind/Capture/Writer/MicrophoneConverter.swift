@@ -22,15 +22,18 @@ final class MicrophoneConverter {
     func convert(_ sampleBuffer: CMSampleBuffer) -> CMSampleBuffer? {
         guard CMSampleBufferGetNumSamples(sampleBuffer) > 0,
             let sourceDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-            let targetFormat = targetFormatIfNeeded()
+            let targetFormat = targetFormatIfNeeded(),
+            let sourceFormat = convertibleSourceFormat(from: sourceDesc)
         else { return nil }
-        let sourceFormat = AVAudioFormat(cmAudioFormatDescription: sourceDesc)
 
         // already exactly the target layout; append as-is
         if sourceFormat.isEqual(targetFormat) { return sampleBuffer }
 
         if converter == nil || !(converterSourceFormat?.isEqual(sourceFormat) ?? false) {
-            converter = AVAudioConverter(from: sourceFormat, to: targetFormat)
+            guard let newConverter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
+                return nil
+            }
+            converter = newConverter
             converterSourceFormat = sourceFormat
         }
         guard let converter,
@@ -60,6 +63,27 @@ final class MicrophoneConverter {
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         return timedSampleBuffer(from: outputBuffer, presentationTimeStamp: pts)
+    }
+
+    private func convertibleSourceFormat(from formatDescription: CMAudioFormatDescription)
+        -> AVAudioFormat?
+    {
+        guard let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)
+        else { return nil }
+        var asbd = asbdPointer.pointee
+        guard asbd.mFormatID == kAudioFormatLinearPCM,
+            asbd.mChannelsPerFrame > 0,
+            asbd.mSampleRate > 0
+        else { return nil }
+
+        guard asbd.mChannelsPerFrame > 2 else {
+            return AVAudioFormat(streamDescription: &asbd)
+        }
+        guard
+            let layout = AVAudioChannelLayout(
+                layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | asbd.mChannelsPerFrame)
+        else { return nil }
+        return AVAudioFormat(streamDescription: &asbd, channelLayout: layout)
     }
 
     /// LPCM layout the mic encoder input expects, derived from the configured
