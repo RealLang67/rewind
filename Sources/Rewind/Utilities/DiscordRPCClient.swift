@@ -3,13 +3,21 @@ import Foundation
 
 enum DiscordActivityState: Equatable {
 	case idle
-	case recording
+	case recording(game: String?)
+
+	var isRecording: Bool {
+		if case .recording = self { return true }
+		return false
+	}
 
 	var details: String {
 		switch self {
 		case .idle:
 			return "Idling..."
-		case .recording:
+		case let .recording(game):
+			if let game, !game.isEmpty {
+				return "Clipping \(game)"
+			}
 			return "Capturing a game"
 		}
 	}
