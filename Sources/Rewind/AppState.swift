@@ -346,8 +346,8 @@ final class AppState: ObservableObject {
 	private var storageMonitor: StorageMonitor!
 	private var discordActivityState: DiscordActivityState = .idle
 	private var discordPresenceRetryTask: Task<Void, Never>?
-	private let robloxDetector = RobloxGameDetector()
-	private var robloxPresenceTask: Task<Void, Never>?
+	private let gameDetector = GamePresenceDetector()
+	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
@@ -641,25 +641,25 @@ final class AppState: ObservableObject {
 		discordActivityState = state
 		publishDiscordPresenceWithRetry(for: state)
 
-		// Only manage the Roblox poller on the idle<->recording transition, not
+		// Only manage the game poller on the idle<->recording transition, not
 		// when the poller itself refines the game name (recording -> recording).
 		if state.isRecording, !previous.isRecording {
-			startRobloxPresenceUpdates()
+			startGamePresenceUpdates()
 		} else if !state.isRecording, previous.isRecording {
-			robloxPresenceTask?.cancel()
-			robloxPresenceTask = nil
+			gamePresenceTask?.cancel()
+			gamePresenceTask = nil
 		}
 	}
 
-	/// While recording, periodically look up the current Roblox game and fold it
+	/// While recording, periodically look up the game being played and fold it
 	/// into the Discord presence so it reads "Clipping <game>".
-	private func startRobloxPresenceUpdates() {
-		robloxPresenceTask?.cancel()
-		robloxPresenceTask = Task { @MainActor [weak self] in
+	private func startGamePresenceUpdates() {
+		gamePresenceTask?.cancel()
+		gamePresenceTask = Task { @MainActor [weak self] in
 			while !Task.isCancelled {
 				guard let self, self.isCapturing, self.discordRPCEnabled,
 				      self.discordActivityState.isRecording else { return }
-				let game = await self.robloxDetector.currentGameName()
+				let game = await self.gameDetector.currentGame()
 				if self.discordActivityState.isRecording {
 					self.updateDiscordActivity(.recording(game: game))
 				}
