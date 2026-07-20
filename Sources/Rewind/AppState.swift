@@ -26,6 +26,25 @@ final class AppState: ObservableObject {
 	}
 
 	@Published private(set) var lastClip: Clip?
+
+	@Published var clipToOpen: Clip?
+
+	/// Login-item state lives in the system (via `SMAppService`), not in app
+	/// settings, so this is initialized from and written straight to that store.
+	@Published var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard launchAtLoginEnabled != oldValue else { return }
+			do {
+				try LaunchAtLogin.setEnabled(launchAtLoginEnabled)
+			} catch {
+				AppLog.error(.app, "Failed to update launch at login:", error)
+				isRestoringSettings = true
+				launchAtLoginEnabled = oldValue
+				isRestoringSettings = false
+			}
+		}
+	}
 	@Published private(set) var permissionState = PermissionState()
 	@Published private(set) var availableResolutions: [CaptureResolution] = []
 	@Published private(set) var isLoadingResolutions = false

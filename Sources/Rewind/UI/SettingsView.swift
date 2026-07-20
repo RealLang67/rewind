@@ -84,6 +84,16 @@ private struct CaptureSettingsPane: View {
 
 	var body: some View {
 		Form {
+			Section("General") {
+				LabeledContent {
+					Toggle("", isOn: $appState.launchAtLoginEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Open on login", help: "Automatically launch Rewind when you log in to your Mac.")
+				}
+			}
+
 			Section("Recording") {
 				LabeledContent {
 					Stepper(
