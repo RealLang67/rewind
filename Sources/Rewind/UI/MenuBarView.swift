@@ -86,7 +86,7 @@ struct MenuBarView: View {
 		if !appState.permissionState.screenRecording {
 			Divider()
 			Button("⚠ Screen Recording Required") {
-				PermissionManager.openSystemSettings()
+				appState.requestScreenRecordingAccess()
 			}
 		}
 

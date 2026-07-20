@@ -349,6 +349,8 @@ final class AppState: ObservableObject {
 	private let gameDetector = GamePresenceDetector()
 	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
+	private var awaitingScreenGrant = false
+	private var screenGrantPollTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
 	private var cancellables = Set<AnyCancellable>()
@@ -492,6 +494,34 @@ final class AppState: ObservableObject {
 
 	func refreshPermissions() {
 		Task { await refreshPermissionsAsync() }
+	}
+
+	/// Opens the Screen Recording settings pane and watches for the grant, then
+	/// relaunches automatically so the user never has to quit and reopen the app.
+	func requestScreenRecordingAccess() {
+		PermissionManager.openSystemSettings()
+		awaitingScreenGrant = true
+		screenGrantPollTask?.cancel()
+		screenGrantPollTask = Task { @MainActor [weak self] in
+			// Back up the app-becomes-active refresh in case the user grants
+			// while Rewind is still frontmost. Give up after a few minutes.
+			for _ in 0 ..< 200 {
+				try? await Task.sleep(nanoseconds: 1_500_000_000)
+				guard let self, self.awaitingScreenGrant else { return }
+				if PermissionManager.currentState().screenRecording {
+					self.relaunchForScreenGrant()
+					return
+				}
+			}
+		}
+	}
+
+	private func relaunchForScreenGrant() {
+		guard awaitingScreenGrant else { return }
+		awaitingScreenGrant = false
+		screenGrantPollTask?.cancel()
+		screenGrantPollTask = nil
+		PermissionManager.relaunch()
 	}
 
 	func refreshResolutions() {
@@ -741,6 +771,11 @@ final class AppState: ObservableObject {
 
 	private func refreshPermissionsAsync() async {
 		permissionState = PermissionManager.currentState()
+		// If the user just granted Screen Recording (typically detected when the
+		// app becomes active again), relaunch to apply it.
+		if awaitingScreenGrant, permissionState.screenRecording {
+			relaunchForScreenGrant()
+		}
 	}
 
 	private func handleCaptureInterrupted(_ error: Error) {

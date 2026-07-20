@@ -34,7 +34,7 @@ struct SettingsView: View {
 		.frame(minWidth: 440, minHeight: 440)
 		.safeAreaInset(edge: .top, spacing: 0) {
 			if settingsLocked {
-				PermissionCallout()
+				PermissionCallout(appState: appState)
 			}
 		}
 		.background(
@@ -552,6 +552,8 @@ private struct HelpLabel: View {
 }
 
 private struct PermissionCallout: View {
+	@ObservedObject var appState: AppState
+
 	var body: some View {
 		HStack(spacing: 12) {
 			Image(systemName: "lock.fill")
@@ -569,7 +571,7 @@ private struct PermissionCallout: View {
 			Spacer(minLength: 8)
 
 			Button("Open System Settings") {
-				PermissionManager.openSystemSettings()
+				appState.requestScreenRecordingAccess()
 			}
 			.buttonStyle(.borderedProminent)
 			.controlSize(.small)
