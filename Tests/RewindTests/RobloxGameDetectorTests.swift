@@ -25,4 +25,19 @@ final class RobloxGameDetectorTests: XCTestCase {
 		let placeID = await detector.lastPlaceID(in: "FPS 60\nrender stats only\n")
 		XCTAssertNil(placeID)
 	}
+
+	func testParsesPlaceAndJobFromJoinLine() async {
+		let detector = RobloxGameDetector()
+		let log = "[FLog::Output] ! Joining game 'a1b2c3-d4e5-jobid' place 606849621 at 10.0.0.1"
+		let session = await detector.lastSession(in: log)
+		XCTAssertEqual(session?.placeID, "606849621")
+		XCTAssertEqual(session?.jobID, "a1b2c3-d4e5-jobid")
+	}
+
+	func testSessionFallsBackToPlaceIdWithoutJob() async {
+		let detector = RobloxGameDetector()
+		let session = await detector.lastSession(in: "GameJoinUtil placeId: 920587237,")
+		XCTAssertEqual(session?.placeID, "920587237")
+		XCTAssertNil(session?.jobID)
+	}
 }

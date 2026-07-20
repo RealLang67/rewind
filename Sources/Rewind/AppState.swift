@@ -563,7 +563,7 @@ final class AppState: ObservableObject {
 				recordMicrophoneEnabled: recordMicrophoneEnabled
 			)
 			isCapturing = true
-			updateDiscordActivity(.recording(game: nil))
+			updateDiscordActivity(.recording(game: nil, joinURL: nil))
 			playRecordingStartFeedback()
 			automaticCaptureRetryTask?.cancel()
 		} catch {
@@ -659,9 +659,9 @@ final class AppState: ObservableObject {
 			while !Task.isCancelled {
 				guard let self, self.isCapturing, self.discordRPCEnabled,
 				      self.discordActivityState.isRecording else { return }
-				let game = await self.gameDetector.currentGame()
+				let presence = await self.gameDetector.currentGame()
 				if self.discordActivityState.isRecording {
-					self.updateDiscordActivity(.recording(game: game))
+					self.updateDiscordActivity(.recording(game: presence?.name, joinURL: presence?.joinURL))
 				}
 				try? await Task.sleep(nanoseconds: 10_000_000_000)
 			}

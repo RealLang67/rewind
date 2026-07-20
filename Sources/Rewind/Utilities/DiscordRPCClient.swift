@@ -3,7 +3,7 @@ import Foundation
 
 enum DiscordActivityState: Equatable {
 	case idle
-	case recording(game: String?)
+	case recording(game: String?, joinURL: String?)
 
 	var isRecording: Bool {
 		if case .recording = self { return true }
@@ -14,7 +14,7 @@ enum DiscordActivityState: Equatable {
 		switch self {
 		case .idle:
 			return "Idling..."
-		case let .recording(game):
+		case let .recording(game, _):
 			if let game, !game.isEmpty {
 				return "Clipping \(game)"
 			}
@@ -30,6 +30,12 @@ enum DiscordActivityState: Equatable {
 		case .recording:
 			return "Instant replay armed"
 		}
+	}
+
+	/// A server-join link (Roblox), surfaced as a "Join my game" presence button.
+	var joinURL: String? {
+		if case let .recording(_, url) = self { return url }
+		return nil
 	}
 }
 
@@ -94,14 +100,17 @@ actor DiscordRPCClient {
 			recordingStartedAt = nil
 		}
 
+		// Discord allows up to two presence buttons. Offer the Roblox join link
+		// first (when available), then the download link.
+		var buttons: [[String: Any]] = []
+		if let joinURL = state.joinURL {
+			buttons.append(["label": "Join my game", "url": joinURL])
+		}
+		buttons.append(["label": "Get Rewind", "url": Constants.rewindWebsiteURL])
+
 		var activity: [String: Any] = [
 			"details": state.details,
-			"buttons": [
-				[
-					"label": "Get Rewind",
-					"url": Constants.rewindWebsiteURL,
-				],
-			],
+			"buttons": buttons,
 		]
 		if let stateLine = state.stateLine {
 			activity["state"] = stateLine

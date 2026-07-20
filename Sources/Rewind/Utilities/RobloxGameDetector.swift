@@ -25,12 +25,28 @@ actor RobloxGameDetector {
 	}
 
 	/// Display name of the experience currently being played, or nil.
-	func currentGameName() async -> String? {
-		guard let placeID = currentPlaceID() else { return nil }
-		if let cached = placeNameCache[placeID] { return cached }
-		guard let name = await resolveGameName(placeID: placeID) else { return nil }
-		placeNameCache[placeID] = name
-		return name
+	struct Session: Equatable {
+		let placeID: String
+		let jobID: String?
+	}
+
+	/// The current experience's display name plus a Roblox server-join URL (when
+	/// the game instance id is known), or nil when not in a game.
+	func currentExperience() async -> (name: String, joinURL: String?)? {
+		guard let session = currentSession() else { return nil }
+		let name: String
+		if let cached = placeNameCache[session.placeID] {
+			name = cached
+		} else if let resolved = await resolveGameName(placeID: session.placeID) {
+			placeNameCache[session.placeID] = resolved
+			name = resolved
+		} else {
+			return nil
+		}
+		let joinURL = session.jobID.map {
+			"https://www.roblox.com/games/start?placeId=\(session.placeID)&gameInstanceId=\($0)"
+		}
+		return (name, joinURL)
 	}
 
 	// MARK: - Log parsing
@@ -40,13 +56,35 @@ actor RobloxGameDetector {
 			.appendingPathComponent("Library/Logs/Roblox", isDirectory: true)
 	}
 
-	private func currentPlaceID() -> String? {
+	private func currentSession() -> Session? {
 		guard let (logURL, modified) = newestLog() else { return nil }
 		// The player writes to the log constantly while in a game; a stale file
 		// means the session ended.
 		guard Date().timeIntervalSince(modified) < staleThreshold else { return nil }
 		guard let content = try? String(contentsOf: logURL, encoding: .utf8) else { return nil }
-		return lastPlaceID(in: content)
+		return lastSession(in: content)
+	}
+
+	/// Last joined place + game-instance (job) id in the log. Roblox logs the
+	/// join like: `! Joining game '<jobId>' place 1818 at <ip>`.
+	func lastSession(in log: String) -> Session? {
+		if let regex = try? NSRegularExpression(pattern: #"Joining game '([^']*)' place (\d+)"#) {
+			let range = NSRange(log.startIndex..., in: log)
+			var session: Session?
+			regex.enumerateMatches(in: log, range: range) { match, _, _ in
+				guard let match, match.numberOfRanges > 2,
+				      let jobRange = Range(match.range(at: 1), in: log),
+				      let placeRange = Range(match.range(at: 2), in: log) else { return }
+				let job = String(log[jobRange])
+				session = Session(placeID: String(log[placeRange]), jobID: job.isEmpty ? nil : job)
+			}
+			if let session { return session }
+		}
+		// Fallback: a placeId field with no job id (no join URL possible).
+		if let placeID = lastPlaceID(in: log) {
+			return Session(placeID: placeID, jobID: nil)
+		}
+		return nil
 	}
 
 	private func newestLog() -> (URL, Date)? {

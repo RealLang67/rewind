@@ -49,14 +49,23 @@ actor GamePresenceDetector {
 		self.roblox = roblox
 	}
 
-	/// Display name of the game currently running, or nil.
-	func currentGame() async -> String? {
+	/// A detected game plus an optional server-join URL (Roblox only).
+	struct Presence: Equatable {
+		let name: String
+		let joinURL: String?
+	}
+
+	/// The game currently running, or nil.
+	func currentGame() async -> Presence? {
 		guard let game = matchRunningGame() else { return nil }
 		if game.name == "Roblox" {
-			// Prefer the specific experience name; fall back to just "Roblox".
-			return await roblox.currentGameName() ?? "Roblox"
+			// Prefer the specific experience name + its join link.
+			if let experience = await roblox.currentExperience() {
+				return Presence(name: experience.name, joinURL: experience.joinURL)
+			}
+			return Presence(name: "Roblox", joinURL: nil)
 		}
-		return game.name
+		return Presence(name: game.name, joinURL: nil)
 	}
 
 	/// First catalog game whose process is currently running.
