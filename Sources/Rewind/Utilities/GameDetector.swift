@@ -8,7 +8,7 @@ import Foundation
 /// Roblox's public web APIs. Nothing is injected into Roblox and no user data
 /// is sent; only a numeric place id is looked up. Returns nil when Roblox
 /// isn't actively running or the game can't be resolved.
-actor RobloxGameDetector {
+actor GameDetector {
 	private var placeNameCache: [String: String] = [:]
 	private let session: URLSession
 	private let staleThreshold: TimeInterval

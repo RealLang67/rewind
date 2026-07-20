@@ -6,7 +6,7 @@ import Foundation
 /// Detection is process-based: it lists running processes and matches their
 /// command lines against a table of known games. That covers most titles with
 /// no per-game API. Roblox is enriched with the specific experience name via
-/// its logs (see `RobloxGameDetector`). Returns nil when no known game is up.
+/// its logs (see `GameDetector`). Returns nil when no known game is up.
 actor GamePresenceDetector {
 	/// A known game and the substrings that identify its running process.
 	/// `needles` are matched case-insensitively against each process command
@@ -41,12 +41,18 @@ actor GamePresenceDetector {
 	]
 
 	private let catalog: [Game]
-	private let roblox: RobloxGameDetector
+	private let roblox: GameDetector
+	private let bundledCatalogURL: URL?
+	/// Lazily-parsed `executable-basename -> game name` map distilled from
+	/// Discord's detectable-games database (see scripts/generate-game-catalog.py).
+	private var bundledCatalog: [String: String]?
 
 	init(catalog: [Game] = GamePresenceDetector.defaultCatalog,
-	     roblox: RobloxGameDetector = RobloxGameDetector()) {
+	     roblox: GameDetector = GameDetector(),
+	     bundledCatalogURL: URL? = Bundle.main.url(forResource: "games", withExtension: "tsv")) {
 		self.catalog = catalog
 		self.roblox = roblox
+		self.bundledCatalogURL = bundledCatalogURL
 	}
 
 	/// A detected game plus an optional server-join URL (Roblox only).
@@ -57,15 +63,23 @@ actor GamePresenceDetector {
 
 	/// The game currently running, or nil.
 	func currentGame() async -> Presence? {
-		guard let game = matchRunningGame() else { return nil }
-		if game.name == "Roblox" {
-			// Prefer the specific experience name + its join link.
-			if let experience = await roblox.currentExperience() {
-				return Presence(name: experience.name, joinURL: experience.joinURL)
+		let commands = runningProcessCommands()
+		// 1. Curated list first: Roblox's experience/join enrichment plus titles
+		//    that need loose or argument-based matching.
+		if let game = matchRunningGame(commands: commands) {
+			if game.name == "Roblox" {
+				if let experience = await roblox.currentExperience() {
+					return Presence(name: experience.name, joinURL: experience.joinURL)
+				}
+				return Presence(name: "Roblox", joinURL: nil)
 			}
-			return Presence(name: "Roblox", joinURL: nil)
+			return Presence(name: game.name, joinURL: nil)
 		}
-		return Presence(name: game.name, joinURL: nil)
+		// 2. Discord's detectable-games catalog (native macOS games).
+		if let name = matchBundledCatalog(commands: commands) {
+			return Presence(name: name, joinURL: nil)
+		}
+		return nil
 	}
 
 	/// First catalog game whose process is currently running.
@@ -76,6 +90,41 @@ actor GamePresenceDetector {
 				running.contains { $0.range(of: needle, options: .caseInsensitive) != nil }
 			}
 		}
+	}
+
+	/// Match process executables against the bundled Discord catalog by basename.
+	func matchBundledCatalog(commands: [String]) -> String? {
+		let catalog = loadBundledCatalog()
+		guard !catalog.isEmpty else { return nil }
+		return Self.match(commands: commands, in: catalog)
+	}
+
+	/// Pure basename lookup, split out so it can be tested without the bundle.
+	static func match(commands: [String], in catalog: [String: String]) -> String? {
+		for command in commands {
+			for token in command.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
+				let base = token.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last
+					.map(String.init) ?? String(token)
+				let key = base.lowercased()
+				if let name = catalog[key] { return name }
+				if key.hasSuffix(".app"), let name = catalog[String(key.dropLast(4))] { return name }
+			}
+		}
+		return nil
+	}
+
+	private func loadBundledCatalog() -> [String: String] {
+		if let bundledCatalog { return bundledCatalog }
+		var map: [String: String] = [:]
+		if let bundledCatalogURL,
+		   let text = try? String(contentsOf: bundledCatalogURL, encoding: .utf8) {
+			for line in text.split(separator: "\n") {
+				let parts = line.split(separator: "\t", maxSplits: 1)
+				if parts.count == 2 { map[String(parts[0])] = String(parts[1]) }
+			}
+		}
+		bundledCatalog = map
+		return map
 	}
 
 	private func runningProcessCommands() -> [String] {

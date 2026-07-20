@@ -37,4 +37,23 @@ final class GamePresenceDetectorTests: XCTestCase {
 		let game = await detector.matchRunningGame(commands: commands)
 		XCTAssertNil(game)
 	}
+
+	// Bundled Discord catalog (basename lookup).
+
+	func testCatalogMatchesWindowsExeUnderWine() {
+		let catalog = ["hades.exe": "Hades", "celeste.exe": "Celeste"]
+		let cmd = ["/Applications/CrossOver.app/Contents/wine64 C:\\Games\\Hades\\Hades.exe --fullscreen"]
+		XCTAssertEqual(GamePresenceDetector.match(commands: cmd, in: catalog), "Hades")
+	}
+
+	func testCatalogMatchesNativeAppBinary() {
+		let catalog = ["deadcells": "Dead Cells"]
+		let cmd = ["/Applications/Dead Cells.app/Contents/MacOS/deadcells"]
+		XCTAssertEqual(GamePresenceDetector.match(commands: cmd, in: catalog), "Dead Cells")
+	}
+
+	func testCatalogNoMatchForSystemProcesses() {
+		let catalog = ["hades.exe": "Hades"]
+		XCTAssertNil(GamePresenceDetector.match(commands: ["/bin/zsh", "/usr/sbin/cfprefsd"], in: catalog))
+	}
 }

@@ -143,6 +143,10 @@ if [[ -d "${PROJECT_ROOT}/Resources/Sounds" ]]; then
   cp -R "${PROJECT_ROOT}/Resources/Sounds/" "${RESOURCES_DIR}/"
 fi
 
+if [[ -f "${PROJECT_ROOT}/Resources/games.tsv" ]]; then
+  cp "${PROJECT_ROOT}/Resources/games.tsv" "${RESOURCES_DIR}/games.tsv"
+fi
+
 cat > "${CONTENTS_DIR}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
