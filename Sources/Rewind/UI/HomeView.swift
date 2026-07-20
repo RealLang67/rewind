@@ -71,6 +71,19 @@ struct HomeView: View {
 					.foregroundStyle(.secondary)
 			}
 		}
+		.onChange(of: appState.clipToOpen?.id) { _ in
+			openRequestedClip()
+		}
+		.onAppear {
+			openRequestedClip()
+		}
+	}
+
+	private func openRequestedClip() {
+		guard let clip = appState.clipToOpen else { return }
+		selectedCategory = "all"
+		selectedClip = clip
+		appState.clipToOpen = nil
 	}
 }
 
