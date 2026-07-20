@@ -21,6 +21,16 @@ enum DiscordActivityState: Equatable {
 			return "Capturing a game"
 		}
 	}
+
+	/// Second (smaller) presence line under `details`.
+	var stateLine: String? {
+		switch self {
+		case .idle:
+			return nil
+		case .recording:
+			return "Instant replay armed"
+		}
+	}
 }
 
 actor DiscordRPCClient {
@@ -49,6 +59,9 @@ actor DiscordRPCClient {
 	private var fileHandle: FileHandle?
 	private var handshakeCompleted = false
 	private var lastPublishedState: DiscordActivityState?
+	/// When the current recording session began, so the presence can show a live
+	/// elapsed timer that survives game-name refinements.
+	private var recordingStartedAt: Date?
 
 	init(clientID: String? = nil) {
 		self.clientID = clientID ?? Self.defaultClientID
@@ -63,6 +76,7 @@ actor DiscordRPCClient {
 		await clearActivity()
 		disconnect()
 		lastPublishedState = nil
+		recordingStartedAt = nil
 	}
 
 	@discardableResult
@@ -71,21 +85,38 @@ actor DiscordRPCClient {
 		guard await ensureConnected() else { return false }
 		guard state != lastPublishedState else { return true }
 
+		// Anchor the elapsed timer on the first recording publish and drop it
+		// when idle, so refining the game name mid-recording doesn't reset it.
+		switch state {
+		case .recording:
+			if recordingStartedAt == nil { recordingStartedAt = Date() }
+		case .idle:
+			recordingStartedAt = nil
+		}
+
+		var activity: [String: Any] = [
+			"details": state.details,
+			"buttons": [
+				[
+					"label": "Get Rewind",
+					"url": Constants.rewindWebsiteURL,
+				],
+			],
+		]
+		if let stateLine = state.stateLine {
+			activity["state"] = stateLine
+		}
+		if let recordingStartedAt {
+			activity["timestamps"] = ["start": Int(recordingStartedAt.timeIntervalSince1970)]
+		}
+
 		let nonce = UUID().uuidString
 		let payload: [String: Any] = [
 			"cmd": "SET_ACTIVITY",
 			"nonce": nonce,
 			"args": [
 				"pid": Int(getpid()),
-				"activity": [
-					"details": state.details,
-					"buttons": [
-						[
-							"label": "Get Rewind",
-							"url": Constants.rewindWebsiteURL,
-						],
-					],
-				],
+				"activity": activity,
 			],
 		]
 
