@@ -1,6 +1,8 @@
 import Foundation
 import OSLog
 import AppKit
+@preconcurrency import CocoaLumberjack
+import CocoaLumberjackSwift
 
 enum AppLog {
 	enum Category: String {
@@ -10,10 +12,9 @@ enum AppLog {
 		case library
 	}
 
-	/// Number of per-session log files to retain. Each app launch writes a new
-	/// `session-<timestamp>.log`; older ones beyond this count are pruned so the
-	/// always-on error log can never grow without bound.
-	private static let maxSessionLogs = 10
+	private static let maxFileSize: UInt64 = 5 * 1024 * 1024
+	private static let rollingFrequency: TimeInterval = 60 * 60 * 24
+	private static let maxLogFiles: UInt = 5
 
 	private static let lock = NSLock()
 	private nonisolated(unsafe) static var _fileLoggingEnabled: Bool = false
@@ -34,8 +35,8 @@ enum AppLog {
 		}
 	}
 
-	/// When on, verbose (`info`/`debug`) logs are also written to the session
-	/// file. Errors are written regardless of this flag.
+	/// When on, verbose (`info`/`debug`) logs are also written to the log file.
+	/// Errors are written regardless of this flag.
 	static var fileLoggingEnabled: Bool {
 		get {
 			lock.lock()
@@ -49,86 +50,49 @@ enum AppLog {
 		}
 	}
 
-	private static let fileLoggerQueue = DispatchQueue(label: "com.rewind.filelogger", qos: .background)
 
-	/// URL of this launch's session log file. Computed once; creating it also
-	/// prunes older session files.
-	static let sessionLogURL: URL? = {
+	private nonisolated(unsafe) static let fileLogger: DDFileLogger = {
 		let fileManager = FileManager.default
-		guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-		let logsDir = appSupportURL.appendingPathComponent("Rewind").appendingPathComponent("Logs")
-		do {
-			try fileManager.createDirectory(at: logsDir, withIntermediateDirectories: true, attributes: nil)
-		} catch {
-			print("File logger setup: \(error)")
-			return nil
+		let logsDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+			.map { $0.appendingPathComponent("Rewind").appendingPathComponent("Logs") }
+
+		let logFileManager: DDLogFileManagerDefault
+		if let logsDir {
+			try? fileManager.createDirectory(at: logsDir, withIntermediateDirectories: true)
+			logFileManager = DDLogFileManagerDefault(logsDirectory: logsDir.path)
+		} else {
+			logFileManager = DDLogFileManagerDefault()
 		}
-		pruneOldSessions(in: logsDir, keeping: maxSessionLogs)
-		return logsDir.appendingPathComponent("session-\(sessionTimestamp()).log")
+		logFileManager.maximumNumberOfLogFiles = maxLogFiles
+
+		let logger = DDFileLogger(logFileManager: logFileManager)
+		logger.maximumFileSize = maxFileSize
+		logger.rollingFrequency = rollingFrequency
+		return logger
 	}()
 
-	private static let fileHandle: FileHandle? = {
-		guard let url = sessionLogURL else { return nil }
-		let fileManager = FileManager.default
-		if !fileManager.fileExists(atPath: url.path) {
-			fileManager.createFile(atPath: url.path, contents: nil, attributes: nil)
-		}
-		do {
-			let handle = try FileHandle(forWritingTo: url)
-			handle.seekToEndOfFile()
-			return handle
-		} catch {
-			print("File logger setup: \(error)")
-			return nil
-		}
-	}()
 
-	/// Current session's log file, surfaced to the UI ("Reveal Log File in Finder").
-	static var logFileURL: URL? { sessionLogURL }
-
-	/// Filename-safe timestamp (no colons) that sorts chronologically as text.
-	private static func sessionTimestamp() -> String {
-		let formatter = DateFormatter()
-		formatter.locale = Locale(identifier: "en_US_POSIX")
-		formatter.timeZone = TimeZone.current
-		formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
-		return formatter.string(from: Date())
+	static var logFileURL: URL? {
+		fileLogger.currentLogFileInfo.map { URL(fileURLWithPath: $0.filePath) }
 	}
 
-	private static func pruneOldSessions(in directory: URL, keeping keepCount: Int) {
-		let fileManager = FileManager.default
-		guard let contents = try? fileManager.contentsOfDirectory(
-			at: directory, includingPropertiesForKeys: nil
-		) else { return }
-		let sessions = contents
-			.filter { $0.lastPathComponent.hasPrefix("session-") && $0.pathExtension == "log" }
-			.sorted { $0.lastPathComponent < $1.lastPathComponent }
-		guard sessions.count >= keepCount else { return }
-		// Keep the newest (keepCount - 1) so there's room for the file we're about
-		// to create; remove the rest.
-		let removeCount = sessions.count - (keepCount - 1)
-		for url in sessions.prefix(removeCount) {
-			try? fileManager.removeItem(at: url)
-		}
-	}
 
-	/// Guards the one-time diagnostics header write at the top of the session file.
 	private nonisolated(unsafe) static var _didWriteSessionHeader = false
 
-	private static func writeToFile(_ message: String, force: Bool = false) {
-		guard force || fileLoggingEnabled else { return }
-		fileLoggerQueue.async {
-			guard let handle = fileHandle else { return }
-			let timestamp = ISO8601DateFormatter().string(from: Date())
-			let logMessage = "[\(timestamp)] \(message)\n"
-			if let data = logMessage.data(using: .utf8) {
-				handle.write(data)
-			}
+	private static func writeToFile(_ message: String, level: OSLogType, force: Bool = false) {
+		guard force || level == .error || fileLoggingEnabled else { return }
+		switch level {
+		case .error:
+			DDLogError("\(message)")
+		case .info:
+			DDLogInfo("\(message)")
+		default:
+			DDLogDebug("\(message)")
 		}
 	}
 
 	/// Called once at launch (from `setupCrashHandlers`, on the main thread) to
-	/// stamp system diagnostics at the top of the session file. Main-thread so
+	/// stamp system diagnostics at the top of the session. Main-thread so
 	/// `NSScreen` access is safe.
 	private static func beginSession() {
 		lock.lock()
@@ -136,11 +100,12 @@ enum AppLog {
 		_didWriteSessionHeader = true
 		lock.unlock()
 		guard !already else { return }
-		writeToFile(diagnosticsReport(), force: true)
+		writeToFile(diagnosticsReport(), level: .info, force: true)
 	}
 
 	static func setupCrashHandlers() {
-		_ = fileHandle
+		// `.all` - level gating is done in `writeToFile`, not by the logger
+		DDLog.add(fileLogger, with: .all)
 		beginSession()
 
 		NSSetUncaughtExceptionHandler { exception in
@@ -157,14 +122,9 @@ enum AppLog {
 	}
 
 	private static func logCrash(_ message: String) {
-		let timestamp = ISO8601DateFormatter().string(from: Date())
-		let logMessage = "[\(timestamp)] [CRASH] \(message)\n"
-
-		if let data = logMessage.data(using: .utf8), let handle = fileHandle {
-			handle.seekToEndOfFile()
-			handle.write(data)
-			handle.synchronizeFile()
-		}
+		DDLogError("[CRASH] \(message)")
+		// Flush synchronously so the crash record survives the imminent exit
+		DDLog.flushLog()
 	}
 
 	private static func diagnosticsReport() -> String {
@@ -340,7 +300,7 @@ enum AppLog {
 		}
 		// Errors are always persisted so field failures are debuggable even when
 		// verbose file logging is off; info/debug honor `fileLoggingEnabled`.
-		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", force: level == .error)
+		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", level: level)
 
 		if level == .error, let errorReporter {
 			errorReporter("[\(category.rawValue)] \(message)")
