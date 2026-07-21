@@ -174,6 +174,7 @@ struct TrimEditorView: View {
 	@State private var playerView = AVPlayerView()
 	@State private var isUploading = false
 	@State private var uploadSuccess = false
+	@State private var uploadFailed = false
 	@State private var isTrimming = false
 	@AppStorage("litterboxExpiration") private var litterboxExpiration = "72h"
 	@State private var uploadTask: URLSessionUploadTask?
@@ -243,6 +244,17 @@ struct TrimEditorView: View {
 								Text("Link copied to clipboard.")
 									.font(.subheadline)
 									.foregroundStyle(.secondary)
+							} else if uploadFailed {
+								Image(systemName: "exclamationmark.triangle.fill")
+									.resizable()
+									.frame(width: 32, height: 32)
+									.foregroundStyle(.orange)
+								Text("Oops! Upload failed.")
+									.font(.headline)
+								Text("The clip couldn't be uploaded.")
+									.font(.subheadline)
+									.foregroundStyle(.secondary)
+									.multilineTextAlignment(.center)
 							} else {
 								Text("Uploading...")
 									.font(.headline)
@@ -319,8 +331,21 @@ struct TrimEditorView: View {
 		NSPasteboard.general.writeObjects([url as NSURL])
 	}
 
+	private func showUploadFailure() {
+		isUploading = false
+		uploadSuccess = false
+		uploadFailed = true
+		Task {
+			try? await Task.sleep(nanoseconds: 5_000_000_000)
+			uploadFailed = false
+			showProgressPopover = false
+		}
+	}
+
 	private func uploadClip(_ url: URL, provider: String) {
 		isUploading = true
+		uploadSuccess = false
+		uploadFailed = false
 		showProgressPopover = true
 		uploadProgress = 0.0
 		
@@ -366,17 +391,24 @@ struct TrimEditorView: View {
 					
 					if let error = error as NSError? {
 						if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+							// user cancelled
+							self.isUploading = false
+							self.showProgressPopover = false
 						} else {
 							print("Upload error: \(error)")
+							self.showUploadFailure()
 						}
-						self.isUploading = false
-						self.showProgressPopover = false
 						return
 					}
-					
-					if let resData = resData, let string = String(data: resData, encoding: .utf8) {
+
+					let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+					let body = String(data: resData ?? Data(), encoding: .utf8)?
+						.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+					let uploadedURL = body.hasPrefix("https://") ? URL(string: body) : nil
+
+					if (200..<300).contains(status), let uploadedURL {
 						NSPasteboard.general.clearContents()
-						NSPasteboard.general.setString(string, forType: .string)
+						NSPasteboard.general.setString(uploadedURL.absoluteString, forType: .string)
 						self.uploadSuccess = true
 						Task {
 							try? await Task.sleep(nanoseconds: 2_500_000_000)
@@ -385,8 +417,8 @@ struct TrimEditorView: View {
 							self.showProgressPopover = false
 						}
 					} else {
-						self.isUploading = false
-						self.showProgressPopover = false
+						print("Upload failed. status: \(status), body: \(body)")
+						self.showUploadFailure()
 					}
 				}
 			}
