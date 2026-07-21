@@ -64,6 +64,17 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published private(set) var availableMicrophones: [MicrophoneDevice] = []
+	// nil = system default input
+	@Published var selectedMicrophoneDeviceID: String? {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard selectedMicrophoneDeviceID != oldValue else { return }
+			persistSettings()
+			restartCaptureSilently()
+		}
+	}
+
 	@Published var selectedQuality: QualityPreset = .default {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -450,8 +461,10 @@ final class AppState: ObservableObject {
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
+		selectedMicrophoneDeviceID = settings.microphoneDeviceID
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
+		refreshMicrophones()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
 			await self?.captureManager.setOnCaptureInterruptedHandler { [weak self] error in
@@ -506,6 +519,7 @@ final class AppState: ObservableObject {
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
+		selectedMicrophoneDeviceID = settings.microphoneDeviceID
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 
@@ -582,6 +596,18 @@ final class AppState: ObservableObject {
 
 	func refreshResolutions() {
 		Task { await loadAvailableResolutions() }
+	}
+
+	// enumeration is instant, so this stays synchronous unlike resolutions.
+	// a selected-but-now-disconnected mic reconciles back to the system default.
+	func refreshMicrophones() {
+		let devices = MicrophoneDeviceProvider.availableDevices()
+		availableMicrophones = devices
+		if let selected = selectedMicrophoneDeviceID,
+			!devices.contains(where: { $0.id == selected })
+		{
+			selectedMicrophoneDeviceID = nil
+		}
 	}
 
 	private func loadAvailableResolutions() async {
@@ -667,7 +693,8 @@ final class AppState: ObservableObject {
 				frameRate: selectedFrameRate.framesPerSecond,
 				audioCodec: selectedAudioCodec,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
-				recordDesktopAudioEnabled: recordDesktopAudioEnabled
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				microphoneDeviceID: selectedMicrophoneDeviceID
 			)
 			isCapturing = true
 			updateDiscordActivity(.recording(game: nil, joinURL: nil))
@@ -727,7 +754,8 @@ final class AppState: ObservableObject {
 					frameRate: selectedFrameRate.framesPerSecond,
 					audioCodec: selectedAudioCodec,
 					recordMicrophoneEnabled: recordMicrophoneEnabled,
-					recordDesktopAudioEnabled: recordDesktopAudioEnabled
+					recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+					microphoneDeviceID: selectedMicrophoneDeviceID
 				)
 			} catch {
 				isCapturing = false
@@ -927,6 +955,7 @@ final class AppState: ObservableObject {
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
 				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
 				captureTargetPromptEnabled: captureTargetPromptEnabled,
+				microphoneDeviceID: selectedMicrophoneDeviceID,
 				outputDirectoryPath: outputDirectoryPath
 			)
 		)
