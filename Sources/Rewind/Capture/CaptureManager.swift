@@ -81,7 +81,15 @@ actor CaptureManager {
         currentAudioCodec = audioCodec
         self.recordMicrophoneEnabled = recordMicrophoneEnabled
         self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
+
+        let transaction = Perf.transaction("capture.start", operation: "task")
+        transaction.setTag(quality.id, forKey: "quality")
+        transaction.setData(frameRate, forKey: "frame_rate")
+        transaction.setData(recordMicrophoneEnabled, forKey: "record_microphone")
+        transaction.setData(recordDesktopAudioEnabled, forKey: "record_desktop_audio")
+
         do {
+            let streamSpan = transaction.child("stream_start")
             try await screenCapture.startCapture(
                 contentFilter: contentFilter,
                 resolution: resolution,
@@ -90,6 +98,8 @@ actor CaptureManager {
                 recordMicrophone: recordMicrophoneEnabled,
                 recordDesktopAudio: recordDesktopAudioEnabled
             )
+            streamSpan.finish()
+            let writerSpan = transaction.child("configure_writer")
             try configureActiveWriter()
             currentWriter = activeWriter
             screenCapture.onVideoSampleBuffer = { [weak self] sampleBuffer in
@@ -104,7 +114,10 @@ actor CaptureManager {
             isRunning = true
             prepareStandbyWriter()
             startRotationLoop()
+            writerSpan.finish()
+            transaction.finish()
         } catch {
+            transaction.finish(failed: true)
             await resetCaptureState()
             throw error
         }
@@ -124,12 +137,19 @@ actor CaptureManager {
         defer { isSaving = false }
 
         AppLog.info(.capture, "Save replay start. seconds:", seconds)
+        let transaction = Perf.transaction("replay.save", operation: "task")
+        transaction.setTag(container.id, forKey: "container")
+        transaction.setData(seconds, forKey: "requested_seconds")
+
         var sourceURL: URL?
         var sourceURLAddedToBuffer = false
         do {
+            let rotateSpan = transaction.child("rotate")
             sourceURL = try await rotateWriterSeamlessly()
+            rotateSpan.finish()
         } catch {
             Self.logError("Replay rotation failed", error)
+            transaction.finish(failed: true)
             throw error
         }
 
@@ -137,6 +157,7 @@ actor CaptureManager {
         do {
             guard let sourceURL else { throw CaptureError.writerUnavailable }
             AppLog.debug(.capture, "Replay source ready:", sourceURL.lastPathComponent)
+            let prepareSpan = transaction.child("prepare")
             try await waitForFileReady(at: sourceURL)
             let duration = try await loadDuration(of: sourceURL)
             let removed = await replayBuffer.appendSegment(
@@ -145,10 +166,20 @@ actor CaptureManager {
             removeFiles(removed)
             let segments = await replayBuffer.latestSegments(totalDuration: seconds)
             segmentsToUnlock = segments
+            prepareSpan.setData(segments.count, forKey: "segment_count")
+            prepareSpan.finish()
+
+            let exportSpan = transaction.child("export")
             let exportURL = try await exporter.export(
                 segments: segments, seconds: seconds, container: container)
+            exportSpan.finish()
+
             await replayBuffer.unlockSegments(segmentsToUnlock)
+            if let size = try? FileManager.default.attributesOfItem(atPath: exportURL.path)[.size] as? Int {
+                transaction.setData(size, forKey: "output_bytes")
+            }
             AppLog.info(.capture, "Save replay success:", exportURL.lastPathComponent)
+            transaction.finish()
             return exportURL
         } catch {
             // Always unlock segments on failure
@@ -159,6 +190,7 @@ actor CaptureManager {
                 removeFiles([sourceURL])
             }
             Self.logError("Export failed", error)
+            transaction.finish(failed: true)
             throw error
         }
     }

@@ -23,6 +23,13 @@ final class UpdaterController: NSObject, ObservableObject, SPUUpdaterDelegate {
 		_updaterController.checkForUpdates(nil)
 	}
 
+	/// Opts into the `beta` channel when the user has enabled beta updates. Sparkle
+	/// always includes the default channel, so an empty set means stable-only. Read
+	/// from storage so toggling takes effect on the next check.
+	nonisolated func allowedChannels(for _: SPUUpdater) -> Set<String> {
+		AppSettingsStorage.load().betaUpdatesEnabled ? ["beta"] : []
+	}
+
 	nonisolated func updater(_: SPUUpdater, willInstallUpdate _: SUAppcastItem) {
 		if let bundleID = Bundle.main.bundleIdentifier {
 			let process = Process()

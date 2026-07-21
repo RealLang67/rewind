@@ -19,6 +19,7 @@ enum AppLog {
 	private static let lock = NSLock()
 	private nonisolated(unsafe) static var _fileLoggingEnabled: Bool = false
 	private nonisolated(unsafe) static var _errorReporter: (@Sendable (String) -> Void)?
+	private nonisolated(unsafe) static var _breadcrumbReporter: (@Sendable (String, String, String) -> Void)?
 
 	/// Optional sink for error-level logs, wired to the crash reporter at launch.
 	/// Kept as a closure so this logging layer carries no dependency on Sentry.
@@ -31,6 +32,19 @@ enum AppLog {
 		set {
 			lock.lock()
 			_errorReporter = newValue
+			lock.unlock()
+		}
+	}
+
+	static var breadcrumbReporter: (@Sendable (String, String, String) -> Void)? {
+		get {
+			lock.lock()
+			defer { lock.unlock() }
+			return _breadcrumbReporter
+		}
+		set {
+			lock.lock()
+			_breadcrumbReporter = newValue
 			lock.unlock()
 		}
 	}
@@ -91,7 +105,7 @@ enum AppLog {
 		}
 	}
 
-	/// Called once at launch (from `setupCrashHandlers`, on the main thread) to
+	/// Called once at launch (from `startFileLogging`, on the main thread) to
 	/// stamp system diagnostics at the top of the session. Main-thread so
 	/// `NSScreen` access is safe.
 	private static func beginSession() {
@@ -103,27 +117,37 @@ enum AppLog {
 		writeToFile(diagnosticsReport(), level: .info, force: true)
 	}
 
-	static func setupCrashHandlers() {
+	/// starts file logging and stamps the session diagnostics header. always safe
+	/// to call once at launch; installs no crash handlers
+	static func startFileLogging() {
 		// `.all` - level gating is done in `writeToFile`, not by the logger
 		DDLog.add(fileLogger, with: .all)
 		beginSession()
+		// a broken pipe/socket must never terminate the app
+		signal(SIGPIPE, SIG_IGN)
+	}
 
+	/// writes a final crash record to the log file on uncaught exceptions/signals
+	/// a fallback for when Sentry isnt active; it installs its own handlers, so
+	/// dont call this while the crash reporter is running
+	static func installFallbackCrashHandlers() {
 		NSSetUncaughtExceptionHandler { exception in
 			AppLog.logCrash("Uncaught Exception: \(exception.name.rawValue)\nReason: \(exception.reason ?? "nil")\nUser Info: \(exception.userInfo ?? [:])\nCall Stack:\n\(exception.callStackSymbols.joined(separator: "\n"))")
 		}
 
-		let signals: [Int32] = [SIGABRT, SIGILL, SIGSEGV, SIGFPE, SIGBUS, SIGPIPE]
+		let signals: [Int32] = [SIGABRT, SIGILL, SIGSEGV, SIGFPE, SIGBUS]
 		for sig in signals {
 			signal(sig) { signal in
 				AppLog.logCrash("Application crashed with signal: \(signal)\nCall Stack:\n\(Thread.callStackSymbols.joined(separator: "\n"))")
-				exit(signal)
+				// `_exit`, not `exit` because exit's atexit/stdio teardown isnt signal-safe
+				_exit(signal)
 			}
 		}
 	}
 
 	private static func logCrash(_ message: String) {
 		DDLogError("[CRASH] \(message)")
-		// Flush synchronously so the crash record survives the imminent exit
+		// Flush synchronously so the crash record survives the imminent exit.
 		DDLog.flushLog()
 	}
 
@@ -302,8 +326,10 @@ enum AppLog {
 		// verbose file logging is off; info/debug honor `fileLoggingEnabled`.
 		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", level: level)
 
-		if level == .error, let errorReporter {
-			errorReporter("[\(category.rawValue)] \(message)")
+		// every line is a breadcrumb; errors are also captured as their own event
+		breadcrumbReporter?(levelString, category.rawValue, message)
+		if level == .error {
+			errorReporter?("[\(category.rawValue)] \(message)")
 		}
 	}
 }

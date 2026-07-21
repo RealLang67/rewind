@@ -322,6 +322,24 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var crashReportingEnabled = AppSettings.default.crashReportingEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard crashReportingEnabled != oldValue else { return }
+			CrashReporter.setEnabled(crashReportingEnabled)
+			persistSettings()
+		}
+	}
+
+	/// opt-in to the sparkle `beta` channel
+	@Published var betaUpdatesEnabled = AppSettings.default.betaUpdatesEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard betaUpdatesEnabled != oldValue else { return }
+			persistSettings()
+		}
+	}
+
 	@Published var catboxEnabled = AppSettings.default.catboxEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -412,6 +430,8 @@ final class AppState: ObservableObject {
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
+		crashReportingEnabled = settings.crashReportingEnabled
+		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
@@ -465,6 +485,8 @@ final class AppState: ObservableObject {
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
+		crashReportingEnabled = settings.crashReportingEnabled
+		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
@@ -474,6 +496,7 @@ final class AppState: ObservableObject {
 
 		persistSettings()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
+		CrashReporter.setEnabled(crashReportingEnabled)
 		updateGlobalHotkeys()
 		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
 		if wasAlwaysRecording && !alwaysRecordEnabled && isCapturing {
@@ -882,6 +905,8 @@ final class AppState: ObservableObject {
 				errorFeedbackSoundID: errorFeedbackSound.id,
 				discordRPCEnabled: discordRPCEnabled,
 				fileLoggingEnabled: fileLoggingEnabled,
+				crashReportingEnabled: crashReportingEnabled,
+				betaUpdatesEnabled: betaUpdatesEnabled,
 				catboxEnabled: catboxEnabled,
 				litterboxEnabled: litterboxEnabled,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,

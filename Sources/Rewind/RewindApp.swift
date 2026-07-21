@@ -9,8 +9,11 @@ struct RewindApp: App {
 	init() {
 		_appState = ObservedObject(initialValue: AppCompositionRoot.shared.appState)
 		_updaterController = ObservedObject(initialValue: AppCompositionRoot.shared.updaterController)
-		AppLog.setupCrashHandlers()
-		CrashReporter.start()
+		AppLog.startFileLogging()
+		CrashReporter.start(enabled: AppCompositionRoot.shared.appState.crashReportingEnabled)
+		if !CrashReporter.isConfigured {
+			AppLog.installFallbackCrashHandlers()
+		}
 	}
 
 	var body: some Scene {

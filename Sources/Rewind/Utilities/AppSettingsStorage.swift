@@ -30,6 +30,8 @@ struct AppSettings: Codable {
 	var errorFeedbackSoundID: String
 	var discordRPCEnabled: Bool
 	var fileLoggingEnabled: Bool
+	var crashReportingEnabled: Bool
+	var betaUpdatesEnabled: Bool
 	var catboxEnabled: Bool
 	var litterboxEnabled: Bool
 	var recordMicrophoneEnabled: Bool
@@ -60,6 +62,8 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID: FeedbackSound.defaultError.id,
 		discordRPCEnabled: true,
 		fileLoggingEnabled: false,
+		crashReportingEnabled: true,
+		betaUpdatesEnabled: false,
 		catboxEnabled: false,
 		litterboxEnabled: false,
 		recordMicrophoneEnabled: false,
@@ -91,6 +95,8 @@ struct AppSettings: Codable {
 		case errorFeedbackSoundID
 		case discordRPCEnabled
 		case fileLoggingEnabled
+		case crashReportingEnabled
+		case betaUpdatesEnabled
 		case catboxEnabled
 		case litterboxEnabled
 		case recordMicrophoneEnabled
@@ -122,6 +128,8 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID: String,
 		discordRPCEnabled: Bool,
 		fileLoggingEnabled: Bool,
+		crashReportingEnabled: Bool,
+		betaUpdatesEnabled: Bool,
 		catboxEnabled: Bool,
 		litterboxEnabled: Bool,
 		recordMicrophoneEnabled: Bool,
@@ -151,6 +159,8 @@ struct AppSettings: Codable {
 		self.errorFeedbackSoundID = errorFeedbackSoundID
 		self.discordRPCEnabled = discordRPCEnabled
 		self.fileLoggingEnabled = fileLoggingEnabled
+		self.crashReportingEnabled = crashReportingEnabled
+		self.betaUpdatesEnabled = betaUpdatesEnabled
 		self.catboxEnabled = catboxEnabled
 		self.litterboxEnabled = litterboxEnabled
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
@@ -192,6 +202,8 @@ struct AppSettings: Codable {
 			?? FeedbackSound.defaultError.id
 		discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
+		crashReportingEnabled = try container.decodeIfPresent(Bool.self, forKey: .crashReportingEnabled) ?? true
+		betaUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .betaUpdatesEnabled) ?? false
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
@@ -230,6 +242,8 @@ struct AppSettings: Codable {
 		try container.encode(errorFeedbackSoundID, forKey: .errorFeedbackSoundID)
 		try container.encode(discordRPCEnabled, forKey: .discordRPCEnabled)
 		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
+		try container.encode(crashReportingEnabled, forKey: .crashReportingEnabled)
+		try container.encode(betaUpdatesEnabled, forKey: .betaUpdatesEnabled)
 		try container.encode(catboxEnabled, forKey: .catboxEnabled)
 		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)

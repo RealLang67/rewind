@@ -13,7 +13,7 @@ struct SettingsView: View {
 
 	var body: some View {
 		TabView {
-			GeneralSettingsPane(appState: appState)
+			GeneralSettingsPane(appState: appState, updaterController: updaterController)
 				.tabItem { Label("General", systemImage: "gearshape") }
 
 			CaptureSettingsPane(appState: appState, settingsLocked: settingsLocked)
@@ -31,7 +31,7 @@ struct SettingsView: View {
 			UploadSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
 
-			AboutSettingsPane(appState: appState, updaterController: updaterController)
+			AboutSettingsPane(appState: appState)
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
 		.frame(minWidth: 440, minHeight: 440)
@@ -65,6 +65,7 @@ struct SettingsView: View {
 
 private struct GeneralSettingsPane: View {
 	@ObservedObject var appState: AppState
+	@ObservedObject var updaterController: UpdaterController
 
 	var body: some View {
 		Form {
@@ -76,6 +77,35 @@ private struct GeneralSettingsPane: View {
 				} label: {
 					HelpLabel("Open on login", help: "Automatically launch Rewind when you log in to your Mac.")
 				}
+			}
+
+			Section("Updates") {
+				Button("Check for Updates...") {
+					updaterController.checkForUpdates()
+				}
+				.liquidGlassButtonStyle()
+				.disabled(!updaterController.updater.canCheckForUpdates)
+
+				Toggle(isOn: $appState.betaUpdatesEnabled) {
+					HelpLabel("Receive beta updates", help: "Opt in to early beta releases. Betas may be less stable. Turn off to return to stable releases on the next update.")
+				}
+			}
+
+			Section("Diagnostics") {
+				Toggle(isOn: $appState.crashReportingEnabled) {
+					HelpLabel("Share crash & error reports", help: "Sends anonymous crash and error diagnostics to help fix bugs. No screen content or personal data is ever sent.")
+				}
+
+				Toggle(isOn: $appState.fileLoggingEnabled) {
+					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
+				}
+
+				Button("Reveal Log File in Finder") {
+					if let url = AppLog.logFileURL {
+						NSWorkspace.shared.activateFileViewerSelecting([url])
+					}
+				}
+				.liquidGlassButtonStyle()
 			}
 		}
 		.formStyle(.grouped)
@@ -450,7 +480,6 @@ private struct UploadSettingsPane: View {
 
 private struct AboutSettingsPane: View {
 	@ObservedObject var appState: AppState
-	@ObservedObject var updaterController: UpdaterController
 	@State private var showingResetConfirmation = false
 
 	private var appVersion: String {
@@ -488,26 +517,9 @@ private struct AboutSettingsPane: View {
 				LabeledContent("Version") {
 					Text(appVersion)
 				}
-
-				Button("Check for Updates...") {
-					updaterController.checkForUpdates()
-				}
-				.liquidGlassButtonStyle()
-				.disabled(!updaterController.updater.canCheckForUpdates)
 			}
 
 			Section("Advanced") {
-				Toggle(isOn: $appState.fileLoggingEnabled) {
-					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
-				}
-				
-				Button("Reveal Log File in Finder") {
-					if let url = AppLog.logFileURL {
-						NSWorkspace.shared.activateFileViewerSelecting([url])
-					}
-				}
-				.liquidGlassButtonStyle()
-
 				Button("Reset to Defaults...", role: .destructive) {
 					showingResetConfirmation = true
 				}

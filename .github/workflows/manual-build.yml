@@ -35,15 +35,33 @@ jobs:
           RAW="${INPUT_VERSION}"
           VERSION="${RAW#v}"
 
-          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid version '${RAW}'. Use semantic version like 1.2.3 or v1.2.3." >&2
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '${RAW}'. Use e.g. 1.2.3, v1.2.3, or 1.0.0-beta.1." >&2
             exit 1
+          fi
+
+          # A pre-release suffix (e.g. -beta.1) marks a beta build: a GitHub
+          # pre-release, shipped to the beta Sparkle channel only.
+          if [[ "${VERSION}" == *-* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
           fi
 
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "release_tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install sentry-cli
+        run: curl -sL https://sentry.io/get-cli/ | bash
 
       - name: Build package
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          # build-package.sh derives SENTRY_ENVIRONMENT from the version.
         run: bash scripts/build-package.sh --version "${{ steps.version_meta.outputs.version }}"
 
       - name: Create zip artifact
@@ -54,15 +72,27 @@ jobs:
       - name: Generate Appcast
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          IS_PRERELEASE: ${{ steps.version_meta.outputs.is_prerelease }}
         run: |
           if [ -z "${SPARKLE_PRIVATE_KEY}" ]; then
             echo "missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          
+
+          # Seed the existing feed so generate_appcast keeps the other channel's
+          # items (a beta release preserves the stable item, and vice versa).
+          curl -fsSL "https://l1zov.github.io/rewind/appcast.xml" -o dist/appcast.xml \
+            || echo "No existing appcast found; generating a fresh feed."
+
+          # Betas go to the 'beta' channel so only opted-in users receive them.
+          CHANNEL_ARGS=()
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            CHANNEL_ARGS=(--channel beta)
+          fi
+
           # Move zip out temporarily to avoid duplicate archive error
           mv dist/*.zip ./
-          echo "${SPARKLE_PRIVATE_KEY}" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+          echo "${SPARKLE_PRIVATE_KEY}" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - "${CHANNEL_ARGS[@]}" --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
           mv ./*.zip dist/
 
       - name: Deploy Appcast to GitHub Pages
@@ -118,6 +148,7 @@ jobs:
           name: Rewind ${{ steps.version_meta.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
           body: ${{ steps.changelog.outputs.body }}
+          prerelease: ${{ steps.version_meta.outputs.is_prerelease }}
           generate_release_notes: true
           files: |
             dist/*.dmg
