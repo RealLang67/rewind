@@ -44,7 +44,7 @@ def basenames(raw: str):
 def main():
     print(f"fetching {SOURCE} ...", file=sys.stderr)
     req = urllib.request.Request(SOURCE, headers={"User-Agent": "Mozilla/5.0 (Macintosh)"})
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         games = json.load(resp)
     print(f"  {len(games)} games", file=sys.stderr)
 

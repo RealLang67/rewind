@@ -53,7 +53,14 @@ jobs:
           echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
 
       - name: Install sentry-cli
-        run: curl -sL https://sentry.io/get-cli/ | bash
+        shell: bash
+        run: |
+          curl -fsSL https://sentry.io/get-cli/ | bash
+          command -v sentry-cli >/dev/null || {
+            echo "sentry-cli install failed or is not on PATH" >&2
+            exit 1
+          }
+          sentry-cli --version
 
       - name: Build package
         env:

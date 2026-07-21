@@ -282,6 +282,12 @@ final class AppState: ObservableObject {
 				await discordRPCClient.setEnabled(discordRPCEnabled)
 				if discordRPCEnabled {
 					self.publishDiscordPresenceWithRetry(for: self.discordActivityState)
+					// The poller exits as soon as it observes discordRPCEnabled == false
+					// (see startGamePresenceUpdates), so re-enabling mid-recording must
+					// restart it explicitly or presence stays frozen on the stale game.
+					if self.isCapturing, self.discordActivityState.isRecording, self.gamePresenceTask == nil {
+						self.startGamePresenceUpdates()
+					}
 				} else {
 					discordPresenceRetryTask?.cancel()
 					discordPresenceRetryTask = nil
@@ -765,6 +771,14 @@ final class AppState: ObservableObject {
 				playErrorFeedback()
 				AppLog.error(.app, "Silent restart failed:", error)
 			}
+		}
+	}
+
+	/// Clears `lastClip` if it points at a clip that was just deleted, so
+	/// "Open Last Clip" doesn't stay enabled and try to open a missing file.
+	func clipWasDeleted(_ clip: Clip) {
+		if lastClip?.id == clip.id {
+			lastClip = nil
 		}
 	}
 

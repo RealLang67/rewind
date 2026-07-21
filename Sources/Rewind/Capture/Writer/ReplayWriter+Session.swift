@@ -52,6 +52,11 @@ extension ReplayWriter {
         if let audioInput {
             flushPendingAudioSamples(audioInput: audioInput, writer: writer)
         }
+        // Mic samples queued before the session started would otherwise sit
+        // until the next mic buffer arrives (and be lost if delivery stalls).
+        if let micInput {
+            drainPendingMicWhileReady(micInput: micInput, writer: writer)
+        }
     }
 
     // - Pending drain / flush ---
@@ -185,6 +190,20 @@ extension ReplayWriter {
 
                 AppLog.debug(
                     .writer, "ReplayWriter.finishWriting: start. status:", writer.status.rawValue)
+
+                // Give any samples still queued from backpressure one last chance
+                // to reach the writer before their inputs are marked finished —
+                // otherwise they're silently dropped by resetState() below.
+                if let videoInput = self.videoInput {
+                    self.drainPendingVideoIfReady(writer: writer, videoInput: videoInput)
+                }
+                if let audioInput = self.audioInput {
+                    self.drainPendingAudioWhileReady(audioInput: audioInput, writer: writer)
+                }
+                if let micInput = self.micInput {
+                    self.drainPendingMicWhileReady(micInput: micInput, writer: writer)
+                }
+
                 self.acceptsMediaData = false
                 self.videoInput?.markAsFinished()
                 self.audioInput?.markAsFinished()

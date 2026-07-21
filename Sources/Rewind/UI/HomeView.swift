@@ -48,6 +48,7 @@ struct HomeView: View {
 										selectedClip = nil
 									}
 									Task { await appState.clipLibrary.deleteClip(clip) }
+									appState.clipWasDeleted(clip)
 								})
 								.overlay(
 									RoundedRectangle(cornerRadius: 8)

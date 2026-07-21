@@ -17,6 +17,7 @@ set -euo pipefail
 APPCAST="https://l1zov.github.io/rewind/appcast.xml"
 APP="/Applications/Rewind.app"
 STAGE="/Applications/.Rewind.app.new"   # staged copy, swapped in only once verified
+BACKUP="/Applications/.Rewind.app.old"  # previous install, kept until the swap succeeds
 VOL=""
 TMP=""
 
@@ -83,6 +84,15 @@ cleanup() {
 	[ -n "$VOL" ] && diskutil eject "$VOL" >/dev/null 2>&1 || true
 	[ -n "$TMP" ] && rm -rf "$TMP" 2>/dev/null || true
 	[ -e "$STAGE" ] && rm -rf "$STAGE" 2>/dev/null || true
+	# Leftover from an interrupted swap in a previous run: restore it rather
+	# than delete it if there's otherwise no app installed.
+	if [ -e "$BACKUP" ]; then
+		if [ ! -e "$APP" ]; then
+			mv "$BACKUP" "$APP" 2>/dev/null || true
+		else
+			rm -rf "$BACKUP" 2>/dev/null || true
+		fi
+	fi
 }
 trap cleanup EXIT
 
@@ -157,10 +167,20 @@ if [ -n "$LATEST" ] && [ -n "$STAGE_VER" ] && [ "$STAGE_VER" != "$LATEST" ]; the
 	die "Staged version ($STAGE_VER) doesn't match expected ($LATEST) — aborting (existing install untouched)."
 fi
 
-# Swap: the old app only goes away once the new one is staged and verified.
+# Swap: move the old app aside (not delete it) until the new one is
+# confirmed in place, so a failed move can be rolled back instead of
+# leaving no install at all.
 killall Rewind 2>/dev/null || true
-rm -rf "$APP"
-mv "$STAGE" "$APP" || die "Couldn't move the new app into place."
+rm -rf "$BACKUP"
+if [ -d "$APP" ]; then
+	mv "$APP" "$BACKUP" || die "Couldn't move the existing app aside — aborting (existing install untouched)."
+fi
+if mv "$STAGE" "$APP"; then
+	rm -rf "$BACKUP"
+else
+	[ -d "$BACKUP" ] && mv "$BACKUP" "$APP" 2>/dev/null
+	die "Couldn't move the new app into place — restored the previous install."
+fi
 
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 chmod -R +x "$APP" 2>/dev/null || true
