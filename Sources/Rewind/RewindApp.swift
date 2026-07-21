@@ -10,6 +10,7 @@ struct RewindApp: App {
 		_appState = ObservedObject(initialValue: AppCompositionRoot.shared.appState)
 		_updaterController = ObservedObject(initialValue: AppCompositionRoot.shared.updaterController)
 		AppLog.setupCrashHandlers()
+		CrashReporter.start()
 	}
 
 	var body: some Scene {

@@ -200,6 +200,16 @@ if [[ -n "${ICON_FILE}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${ICON_FILE}" "${CONTENTS_DIR}/Info.plist"
 fi
 
+# Sentry crash/error reporting reads its DSN from Info.plist. Injected from the
+# SENTRY_DSN environment variable at build time so it isn't committed to source;
+# without it, reporting is a no-op (see CrashReporter.swift).
+if [[ -n "${SENTRY_DSN:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :SentryDSN string ${SENTRY_DSN}" "${CONTENTS_DIR}/Info.plist"
+  echo "Injected SentryDSN into Info.plist"
+else
+  echo "SENTRY_DSN not set; Sentry reporting will be disabled in this build."
+fi
+
 SPARKLE_FRAMEWORK_SRC="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 if [[ -d "${SPARKLE_FRAMEWORK_SRC}" ]]; then
   ditto "${SPARKLE_FRAMEWORK_SRC}" "${FRAMEWORKS_DIR}/Sparkle.framework"

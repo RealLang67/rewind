@@ -17,6 +17,22 @@ enum AppLog {
 
 	private static let lock = NSLock()
 	private nonisolated(unsafe) static var _fileLoggingEnabled: Bool = false
+	private nonisolated(unsafe) static var _errorReporter: (@Sendable (String) -> Void)?
+
+	/// Optional sink for error-level logs, wired to the crash reporter at launch.
+	/// Kept as a closure so this logging layer carries no dependency on Sentry.
+	static var errorReporter: (@Sendable (String) -> Void)? {
+		get {
+			lock.lock()
+			defer { lock.unlock() }
+			return _errorReporter
+		}
+		set {
+			lock.lock()
+			_errorReporter = newValue
+			lock.unlock()
+		}
+	}
 
 	/// When on, verbose (`info`/`debug`) logs are also written to the session
 	/// file. Errors are written regardless of this flag.
@@ -325,5 +341,9 @@ enum AppLog {
 		// Errors are always persisted so field failures are debuggable even when
 		// verbose file logging is off; info/debug honor `fileLoggingEnabled`.
 		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", force: level == .error)
+
+		if level == .error, let errorReporter {
+			errorReporter("[\(category.rawValue)] \(message)")
+		}
 	}
 }
