@@ -10,6 +10,11 @@ final class AppState: ObservableObject {
 		OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
 	)
 
+	// SCContentSharingPicker is macOS 14+; older systems always fall back to the primary display.
+	static let supportsCaptureTargetPrompt = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+		OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0)
+	)
+
 	@Published private(set) var isCapturing = false
 	@Published var replayDuration: TimeInterval = 30 {
 		didSet {
@@ -313,6 +318,15 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	// only affects the next manual start's picker prompt, so no capture restart here
+	@Published var captureTargetPromptEnabled = AppSettings.default.captureTargetPromptEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard captureTargetPromptEnabled != oldValue else { return }
+			persistSettings()
+		}
+	}
+
 	@Published var fileLoggingEnabled = AppSettings.default.fileLoggingEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -436,6 +450,7 @@ final class AppState: ObservableObject {
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
@@ -491,6 +506,7 @@ final class AppState: ObservableObject {
 		litterboxEnabled = settings.litterboxEnabled
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
 		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
 
@@ -633,7 +649,7 @@ final class AppState: ObservableObject {
 			let contentFilter: UncheckedSendable<SCContentFilter>?
 			if isAutomatic {
 				contentFilter = lastContentFilter
-			} else if #available(macOS 14.0, *) {
+			} else if captureTargetPromptEnabled, #available(macOS 14.0, *) {
 				do {
 					contentFilter = try await presentContentPicker()
 					lastContentFilter = contentFilter
@@ -911,6 +927,7 @@ final class AppState: ObservableObject {
 				litterboxEnabled: litterboxEnabled,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
 				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				captureTargetPromptEnabled: captureTargetPromptEnabled,
 				outputDirectoryPath: outputDirectoryPath
 			)
 		)

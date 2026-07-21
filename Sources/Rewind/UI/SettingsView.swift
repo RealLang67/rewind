@@ -28,10 +28,7 @@ struct SettingsView: View {
 			IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
-			UploadSettingsPane(appState: appState, settingsLocked: settingsLocked)
-				.tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
-
-			AboutSettingsPane(appState: appState)
+			AboutSettingsPane()
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
 		.frame(minWidth: 440, minHeight: 440)
@@ -66,6 +63,7 @@ struct SettingsView: View {
 private struct GeneralSettingsPane: View {
 	@ObservedObject var appState: AppState
 	@ObservedObject var updaterController: UpdaterController
+	@State private var showingResetConfirmation = false
 
 	var body: some View {
 		Form {
@@ -107,8 +105,25 @@ private struct GeneralSettingsPane: View {
 				}
 				.liquidGlassButtonStyle()
 			}
+
+			Section("Advanced") {
+				Button("Reset to Defaults...", role: .destructive) {
+					showingResetConfirmation = true
+				}
+				.liquidGlassButtonStyle()
+			}
 		}
 		.formStyle(.grouped)
+		.confirmationDialog(
+			"Reset all settings to their defaults?",
+			isPresented: $showingResetConfirmation,
+			titleVisibility: .visible
+		) {
+			Button("Reset to Defaults", role: .destructive) {
+				appState.resetToDefaults()
+			}
+			Button("Cancel", role: .cancel) {}
+		}
 	}
 }
 
@@ -137,6 +152,20 @@ private struct CaptureSettingsPane: View {
 	var body: some View {
 		Form {
 			Section("Recording") {
+				LabeledContent {
+					Toggle("", isOn: $appState.captureTargetPromptEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+						.disabled(!AppState.supportsCaptureTargetPrompt)
+				} label: {
+					HelpLabel(
+						"Choose what to record",
+						help: AppState.supportsCaptureTargetPrompt
+							? "When you start recording manually, macOS asks which display, window or app to capture. Turn off to always record the main display."
+							: "Choosing a display, window, or app to capture requires macOS 14 or later."
+					)
+				}
+
 				LabeledContent {
 					Stepper(
 						value: replayDurationSecondsBinding,
@@ -449,17 +478,7 @@ private struct IntegrationsSettingsPane: View {
 				}
 			}
 			.disabled(settingsLocked)
-		}
-		.formStyle(.grouped)
-	}
-}
 
-private struct UploadSettingsPane: View {
-	@ObservedObject var appState: AppState
-	let settingsLocked: Bool
-
-	var body: some View {
-		Form {
 			Section {
 				Toggle(isOn: $appState.catboxEnabled) {
 					HelpLabel("Catbox.moe", help: "Enable uploading clips to Catbox.moe (permanent).")
@@ -468,7 +487,7 @@ private struct UploadSettingsPane: View {
 					HelpLabel("Litterbox", help: "Enable uploading clips to Litterbox (expiration configurable on upload).")
 				}
 			} header: {
-				Text("Providers")
+				Text("Upload Providers")
 			} footer: {
 				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
@@ -479,9 +498,6 @@ private struct UploadSettingsPane: View {
 }
 
 private struct AboutSettingsPane: View {
-	@ObservedObject var appState: AppState
-	@State private var showingResetConfirmation = false
-
 	private var appVersion: String {
 		let shortVersion = normalizedVersion(
 			Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -518,25 +534,8 @@ private struct AboutSettingsPane: View {
 					Text(appVersion)
 				}
 			}
-
-			Section("Advanced") {
-				Button("Reset to Defaults...", role: .destructive) {
-					showingResetConfirmation = true
-				}
-				.liquidGlassButtonStyle()
-			}
 		}
 		.formStyle(.grouped)
-		.confirmationDialog(
-			"Reset all settings to their defaults?",
-			isPresented: $showingResetConfirmation,
-			titleVisibility: .visible
-		) {
-			Button("Reset to Defaults", role: .destructive) {
-				appState.resetToDefaults()
-			}
-			Button("Cancel", role: .cancel) {}
-		}
 	}
 }
 

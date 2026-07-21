@@ -36,6 +36,7 @@ struct AppSettings: Codable {
 	var litterboxEnabled: Bool
 	var recordMicrophoneEnabled: Bool
 	var recordDesktopAudioEnabled: Bool
+	var captureTargetPromptEnabled: Bool
 	var outputDirectoryPath: String?
 
 	static let `default` = AppSettings(
@@ -68,6 +69,7 @@ struct AppSettings: Codable {
 		litterboxEnabled: false,
 		recordMicrophoneEnabled: false,
 		recordDesktopAudioEnabled: true,
+		captureTargetPromptEnabled: true,
 		outputDirectoryPath: nil
 	)
 
@@ -101,6 +103,7 @@ struct AppSettings: Codable {
 		case litterboxEnabled
 		case recordMicrophoneEnabled
 		case recordDesktopAudioEnabled
+		case captureTargetPromptEnabled
 		case outputDirectoryPath
 	}
 
@@ -134,6 +137,7 @@ struct AppSettings: Codable {
 		litterboxEnabled: Bool,
 		recordMicrophoneEnabled: Bool,
 		recordDesktopAudioEnabled: Bool,
+		captureTargetPromptEnabled: Bool,
 		outputDirectoryPath: String?
 	) {
 		self.replayDuration = replayDuration
@@ -165,6 +169,7 @@ struct AppSettings: Codable {
 		self.litterboxEnabled = litterboxEnabled
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
 		self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
+		self.captureTargetPromptEnabled = captureTargetPromptEnabled
 		self.outputDirectoryPath = outputDirectoryPath
 	}
 
@@ -208,6 +213,7 @@ struct AppSettings: Codable {
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
 		recordDesktopAudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordDesktopAudioEnabled) ?? true
+		captureTargetPromptEnabled = try container.decodeIfPresent(Bool.self, forKey: .captureTargetPromptEnabled) ?? true
 		outputDirectoryPath = try container.decodeIfPresent(String.self, forKey: .outputDirectoryPath)
 	}
 
@@ -248,6 +254,7 @@ struct AppSettings: Codable {
 		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
 		try container.encode(recordDesktopAudioEnabled, forKey: .recordDesktopAudioEnabled)
+		try container.encode(captureTargetPromptEnabled, forKey: .captureTargetPromptEnabled)
 		try container.encodeIfPresent(outputDirectoryPath, forKey: .outputDirectoryPath)
 	}
 

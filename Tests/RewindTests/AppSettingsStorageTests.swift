@@ -76,6 +76,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			litterboxEnabled: false,
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: false,
+			captureTargetPromptEnabled: false,
 			outputDirectoryPath: "/Users/example/Desktop/Clips"
 		)
 
@@ -109,6 +110,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
 		XCTAssertEqual(loaded.recordDesktopAudioEnabled, expected.recordDesktopAudioEnabled)
+		XCTAssertEqual(loaded.captureTargetPromptEnabled, expected.captureTargetPromptEnabled)
 		XCTAssertEqual(loaded.outputDirectoryPath, expected.outputDirectoryPath)
 	}
 
@@ -143,6 +145,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			litterboxEnabled: false,
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: true,
+			captureTargetPromptEnabled: true,
 			outputDirectoryPath: nil
 		)
 		let data = try JSONEncoder().encode(invalid)
@@ -239,6 +242,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
 			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 
@@ -290,6 +294,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
 			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 	}
