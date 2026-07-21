@@ -188,6 +188,44 @@ private struct CaptureSettingsPane: View {
 				} label: {
 					HelpLabel("Always record", help: "Automatically saves clips continuously in the background.")
 				}
+			}
+			.disabled(settingsLocked)
+
+			Section("Video") {
+				LabeledContent("Resolution") {
+					resolutionControl
+						.frame(width: 200, alignment: .trailing)
+				}
+
+				Picker(selection: $appState.selectedQuality) {
+					ForEach(QualityPreset.presets) { preset in
+						Text(defaultTaggedLabel(preset.label, isDefault: preset.isDefault)).tag(preset)
+					}
+				} label: {
+					HelpLabel("Quality", help: "Higher quality increases file size but produces clearer video.")
+				}
+				.pickerStyle(.menu)
+
+				Picker(selection: $appState.selectedFrameRate) {
+					ForEach(CaptureFrameRate.options) { option in
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
+					}
+				} label: {
+					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
+				}
+				.pickerStyle(.menu)
+			}
+			.disabled(settingsLocked)
+
+			Section("Audio") {
+				Picker(selection: $appState.selectedAudioCodec) {
+					ForEach(CaptureAudioCodec.options) { option in
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
+					}
+				} label: {
+					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
+				}
+				.pickerStyle(.menu)
 
 				LabeledContent {
 					Toggle("", isOn: $appState.recordDesktopAudioEnabled)
@@ -226,32 +264,6 @@ private struct CaptureSettingsPane: View {
 			}
 			.disabled(settingsLocked)
 
-			Section("Video") {
-				LabeledContent("Resolution") {
-					resolutionControl
-						.frame(width: 200, alignment: .trailing)
-				}
-
-				Picker(selection: $appState.selectedQuality) {
-					ForEach(QualityPreset.presets) { preset in
-						Text(defaultTaggedLabel(preset.label, isDefault: preset.isDefault)).tag(preset)
-					}
-				} label: {
-					HelpLabel("Quality", help: "Higher quality increases file size but produces clearer video.")
-				}
-				.pickerStyle(.menu)
-
-				Picker(selection: $appState.selectedFrameRate) {
-					ForEach(CaptureFrameRate.options) { option in
-						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
-					}
-				} label: {
-					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
-				}
-				.pickerStyle(.menu)
-			}
-			.disabled(settingsLocked)
-
 			Section("Output") {
 				LabeledContent("Save location") {
 					HStack(spacing: 8) {
@@ -280,15 +292,6 @@ private struct CaptureSettingsPane: View {
 					}
 				} label: {
 					HelpLabel("Container", help: "Video file format for saved clips (.mp4 or .mov).")
-				}
-				.pickerStyle(.menu)
-
-				Picker(selection: $appState.selectedAudioCodec) {
-					ForEach(CaptureAudioCodec.options) { option in
-						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
-					}
-				} label: {
-					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
 				}
 				.pickerStyle(.menu)
 			}
