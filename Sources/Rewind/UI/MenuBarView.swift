@@ -17,6 +17,14 @@ struct MenuBarView: View {
 		.disabled(!appState.isCapturing)
 		.applyHotkey(appState.hotkey)
 
+		Toggle("Record Microphone", isOn: $appState.recordMicrophoneEnabled)
+			.toggleStyle(.checkbox)
+			.disabled(!AppState.supportsMicrophoneCapture)
+			.help(
+				AppState.supportsMicrophoneCapture
+					? "Include microphone audio in recordings."
+					: "Requires macOS 13 or later.")
+
 		Divider()
 
 		Button("Open Last Clip") {
