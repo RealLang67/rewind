@@ -72,7 +72,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		quality: QualityPreset = .default,
 		frameRate: Int = CaptureFrameRate.default.framesPerSecond,
 		recordMicrophone: Bool = false,
-		recordDesktopAudio: Bool = true
+		recordDesktopAudio: Bool = true,
+		microphoneDeviceID: String? = nil
 	) async throws {
 		guard stream == nil else { return }
 
@@ -210,6 +211,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
 				if #available(macOS 15.0, *) {
 			config.captureMicrophone = recordMicrophone
+			// nil selects the system default input
+			config.microphoneCaptureDeviceID = recordMicrophone ? microphoneDeviceID : nil
 		}
 
 		displaySize = outputSize

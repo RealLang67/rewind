@@ -77,6 +77,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: false,
 			captureTargetPromptEnabled: false,
+			microphoneDeviceID: "com.example.mic.usb",
 			outputDirectoryPath: "/Users/example/Desktop/Clips"
 		)
 
@@ -111,6 +112,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
 		XCTAssertEqual(loaded.recordDesktopAudioEnabled, expected.recordDesktopAudioEnabled)
 		XCTAssertEqual(loaded.captureTargetPromptEnabled, expected.captureTargetPromptEnabled)
+		XCTAssertEqual(loaded.microphoneDeviceID, expected.microphoneDeviceID)
 		XCTAssertEqual(loaded.outputDirectoryPath, expected.outputDirectoryPath)
 	}
 
@@ -146,6 +148,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: true,
 			captureTargetPromptEnabled: true,
+			microphoneDeviceID: nil,
 			outputDirectoryPath: nil
 		)
 		let data = try JSONEncoder().encode(invalid)
@@ -243,6 +246,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
 			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
+			microphoneDeviceID: AppSettings.default.microphoneDeviceID,
 			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 
@@ -295,6 +299,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
 			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
+			microphoneDeviceID: AppSettings.default.microphoneDeviceID,
 			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 	}

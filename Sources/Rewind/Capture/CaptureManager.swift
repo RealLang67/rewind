@@ -73,7 +73,8 @@ actor CaptureManager {
         frameRate: Int = CaptureFrameRate.default.framesPerSecond,
         audioCodec: CaptureAudioCodec = .default,
         recordMicrophoneEnabled: Bool = false,
-        recordDesktopAudioEnabled: Bool = true
+        recordDesktopAudioEnabled: Bool = true,
+        microphoneDeviceID: String? = nil
     ) async throws {
         guard !isRunning else { return }
         currentQuality = quality
@@ -96,7 +97,8 @@ actor CaptureManager {
                 quality: quality,
                 frameRate: frameRate,
                 recordMicrophone: recordMicrophoneEnabled,
-                recordDesktopAudio: recordDesktopAudioEnabled
+                recordDesktopAudio: recordDesktopAudioEnabled,
+                microphoneDeviceID: microphoneDeviceID
             )
             streamSpan.finish()
             let writerSpan = transaction.child("configure_writer")

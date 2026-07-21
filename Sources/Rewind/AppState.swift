@@ -10,7 +10,6 @@ final class AppState: ObservableObject {
 		OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
 	)
 
-	// SCContentSharingPicker is macOS 14+; older systems always fall back to the primary display.
 	static let supportsCaptureTargetPrompt = ProcessInfo.processInfo.isOperatingSystemAtLeast(
 		OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0)
 	)

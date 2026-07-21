@@ -37,6 +37,7 @@ struct AppSettings: Codable {
 	var recordMicrophoneEnabled: Bool
 	var recordDesktopAudioEnabled: Bool
 	var captureTargetPromptEnabled: Bool
+	var microphoneDeviceID: String?
 	var outputDirectoryPath: String?
 
 	static let `default` = AppSettings(
@@ -70,6 +71,7 @@ struct AppSettings: Codable {
 		recordMicrophoneEnabled: false,
 		recordDesktopAudioEnabled: true,
 		captureTargetPromptEnabled: true,
+		microphoneDeviceID: nil,
 		outputDirectoryPath: nil
 	)
 
@@ -104,6 +106,7 @@ struct AppSettings: Codable {
 		case recordMicrophoneEnabled
 		case recordDesktopAudioEnabled
 		case captureTargetPromptEnabled
+		case microphoneDeviceID
 		case outputDirectoryPath
 	}
 
@@ -138,6 +141,7 @@ struct AppSettings: Codable {
 		recordMicrophoneEnabled: Bool,
 		recordDesktopAudioEnabled: Bool,
 		captureTargetPromptEnabled: Bool,
+		microphoneDeviceID: String?,
 		outputDirectoryPath: String?
 	) {
 		self.replayDuration = replayDuration
@@ -170,6 +174,7 @@ struct AppSettings: Codable {
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
 		self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
 		self.captureTargetPromptEnabled = captureTargetPromptEnabled
+		self.microphoneDeviceID = microphoneDeviceID
 		self.outputDirectoryPath = outputDirectoryPath
 	}
 
@@ -214,6 +219,7 @@ struct AppSettings: Codable {
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
 		recordDesktopAudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordDesktopAudioEnabled) ?? true
 		captureTargetPromptEnabled = try container.decodeIfPresent(Bool.self, forKey: .captureTargetPromptEnabled) ?? true
+		microphoneDeviceID = try container.decodeIfPresent(String.self, forKey: .microphoneDeviceID)
 		outputDirectoryPath = try container.decodeIfPresent(String.self, forKey: .outputDirectoryPath)
 	}
 
@@ -255,6 +261,7 @@ struct AppSettings: Codable {
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
 		try container.encode(recordDesktopAudioEnabled, forKey: .recordDesktopAudioEnabled)
 		try container.encode(captureTargetPromptEnabled, forKey: .captureTargetPromptEnabled)
+		try container.encodeIfPresent(microphoneDeviceID, forKey: .microphoneDeviceID)
 		try container.encodeIfPresent(outputDirectoryPath, forKey: .outputDirectoryPath)
 	}
 

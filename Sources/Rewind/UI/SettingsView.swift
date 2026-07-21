@@ -47,6 +47,7 @@ struct SettingsView: View {
 			if appState.availableResolutions.isEmpty, !appState.isLoadingResolutions {
 				appState.refreshResolutions()
 			}
+			appState.refreshMicrophones()
 		}
 	}
 
@@ -208,6 +209,19 @@ private struct CaptureSettingsPane: View {
 							? "Captures microphone audio. Requires microphone permissions."
 							: "Captures microphone audio. Requires macOS 15 or later."
 					)
+				}
+
+				if AppState.supportsMicrophoneCapture {
+					Picker(selection: $appState.selectedMicrophoneDeviceID) {
+						Text("System Default").tag(String?.none)
+						ForEach(appState.availableMicrophones) { device in
+							Text(device.name).tag(Optional(device.id))
+						}
+					} label: {
+						HelpLabel("Microphone", help: "Which microphone to capture. System Default follows your Mac's input device.")
+					}
+					.pickerStyle(.menu)
+					.disabled(!appState.recordMicrophoneEnabled)
 				}
 			}
 			.disabled(settingsLocked)
