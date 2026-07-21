@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+@preconcurrency import ScreenCaptureKit
 
 actor CaptureManager {
     private enum Constants {
@@ -66,6 +67,7 @@ actor CaptureManager {
     }
 
     func start(
+        contentFilter: UncheckedSendable<SCContentFilter>? = nil,
         resolution: CaptureResolution? = nil,
         quality: QualityPreset = .default,
         frameRate: Int = CaptureFrameRate.default.framesPerSecond,
@@ -81,6 +83,7 @@ actor CaptureManager {
         self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
         do {
             try await screenCapture.startCapture(
+                contentFilter: contentFilter,
                 resolution: resolution,
                 quality: quality,
                 frameRate: frameRate,

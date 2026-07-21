@@ -67,6 +67,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	}
 
 	func startCapture(
+		contentFilter: UncheckedSendable<SCContentFilter>? = nil,
 		resolution: CaptureResolution? = nil,
 		quality: QualityPreset = .default,
 		frameRate: Int = CaptureFrameRate.default.framesPerSecond,
@@ -75,21 +76,31 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	) async throws {
 		guard stream == nil else { return }
 
-		let content: SCShareableContent
-		if #available(macOS 14.0, *) {
-			content = try await SCShareableContent.excludingDesktopWindows(
-				false, onScreenWindowsOnly: true
-			)
+		// When the user picked a display/window/app via SCContentSharingPicker we
+		// capture exactly that; otherwise fall back to the primary display.
+		let filter: SCContentFilter
+		let display: SCDisplay?
+		if let providedFilter = contentFilter?.value {
+			filter = providedFilter
+			display = nil
+			AppLog.debug(.capture, "ScreenCaptureService: using picker-provided content filter")
 		} else {
-			content = try await SCShareableContent.current
+			let content: SCShareableContent
+			if #available(macOS 14.0, *) {
+				content = try await SCShareableContent.excludingDesktopWindows(
+					false, onScreenWindowsOnly: true
+				)
+			} else {
+				content = try await SCShareableContent.current
+			}
+			guard let primaryDisplay = content.displays.first else {
+				throw CaptureError.noDisplay
+			}
+			display = primaryDisplay
+			filter = SCContentFilter(
+				display: primaryDisplay, excludingApplications: [], exceptingWindows: []
+			)
 		}
-		guard let display = content.displays.first else {
-			throw CaptureError.noDisplay
-		}
-
-		let filter = SCContentFilter(
-			display: display, excludingApplications: [], exceptingWindows: []
-		)
 
 		var nativeWidth = 0
 		var nativeHeight = 0
@@ -106,7 +117,9 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			AppLog.debug(.capture, "ScreenCaptureService: pointPixelScale:", scale)
 		}
 
-		if nativeWidth <= 1 || nativeHeight <= 1 {
+		// The display-based fallback only applies to a whole-display capture; a
+		// picker-provided window/app filter always reports a valid contentRect.
+		if nativeWidth <= 1 || nativeHeight <= 1, let display {
 			let displayID = display.displayID
 			if let mode = CGDisplayCopyDisplayMode(displayID) {
 				nativeWidth = mode.pixelWidth

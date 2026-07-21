@@ -1,5 +1,6 @@
 import AppKit
 @preconcurrency import AVFoundation
+@preconcurrency import ScreenCaptureKit
 import SwiftUI
 import Combine
 
@@ -358,6 +359,12 @@ final class AppState: ObservableObject {
 	private let gameDetector = GamePresenceDetector()
 	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
+	/// Keeps the system content picker alive while it is presented (it is only an
+	/// observer, so it must be retained). Created lazily on macOS 14+.
+	private var contentPicker: Any?
+	/// The most recent content selection, reused for silent restarts and automatic
+	/// retries so the user is not re-prompted mid-session.
+	private var lastContentFilter: UncheckedSendable<SCContentFilter>?
 	private var awaitingScreenGrant = false
 	private var screenGrantPollTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
@@ -596,7 +603,27 @@ final class AppState: ObservableObject {
 		do {
 			try await PermissionManager.ensureScreenAccess()
 			permissionState = PermissionManager.currentState()
+
+			// On a manual start, let the user choose what to capture. Automatic
+			// starts (retries) silently reuse the last selection so recording can
+			// resume without interrupting the user.
+			let contentFilter: UncheckedSendable<SCContentFilter>?
+			if isAutomatic {
+				contentFilter = lastContentFilter
+			} else if #available(macOS 14.0, *) {
+				do {
+					contentFilter = try await presentContentPicker()
+					lastContentFilter = contentFilter
+				} catch is ContentSharingPicker.Cancelled {
+					// User dismissed the picker; abort the start without an error.
+					return
+				}
+			} else {
+				contentFilter = nil
+			}
+
 			try await captureManager.start(
+				contentFilter: contentFilter,
 				resolution: selectedResolution,
 				quality: selectedQuality,
 				frameRate: selectedFrameRate.framesPerSecond,
@@ -640,12 +667,23 @@ final class AppState: ObservableObject {
 		playRecordingEndFeedback()
 	}
 
+	/// Presents the macOS content picker and returns the chosen filter, boxed so it
+	/// can cross into the capture actor. Retains the picker for the presentation.
+	@available(macOS 14.0, *)
+	private func presentContentPicker() async throws -> UncheckedSendable<SCContentFilter> {
+		let picker = ContentSharingPicker()
+		contentPicker = picker
+		defer { contentPicker = nil }
+		return try await picker.pick()
+	}
+
 	private func restartCaptureSilently() {
 		guard isCapturing else { return }
 		Task {
 			await captureManager.stop()
 			do {
 				try await captureManager.start(
+					contentFilter: lastContentFilter,
 					resolution: selectedResolution,
 					quality: selectedQuality,
 					frameRate: selectedFrameRate.framesPerSecond,
