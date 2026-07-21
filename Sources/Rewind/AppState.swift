@@ -385,6 +385,8 @@ final class AppState: ObservableObject {
 			guard !isRestoringSettings else { return }
 			guard outputDirectoryPath != oldValue else { return }
 			persistSettings()
+			// a new folder may be on a different volume, so re-evaluate now
+			refreshStorageWarning()
 		}
 	}
 

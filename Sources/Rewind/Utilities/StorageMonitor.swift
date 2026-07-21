@@ -1,7 +1,7 @@
 import Foundation
 
-/// Periodically checks free disk space on the Movies volume and reports a
-/// low-storage warning message (or nil) through `onChange`.
+/// Periodically checks free disk space on the volume that holds the clip output
+/// folder and reports a low-storage warning message (or nil) through `onChange`.
 @MainActor
 final class StorageMonitor {
     private enum Constants {
@@ -44,9 +44,7 @@ final class StorageMonitor {
 
     private func availableBytes() -> Int64? {
         let fileManager = FileManager.default
-        let targetURL =
-            fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first
-            ?? fileManager.homeDirectoryForCurrentUser
+        let targetURL = nearestExistingDirectory(ClipStorageLocation.current())
 
         if let resourceValues = try? targetURL.resourceValues(forKeys: [
             .volumeAvailableCapacityForImportantUsageKey,
@@ -67,5 +65,18 @@ final class StorageMonitor {
         }
 
         return nil
+    }
+
+    /// the output folder may not exist yet, but free space is a property of the
+    /// volume, so any existing ancestor on that volume gives the right answer
+    private func nearestExistingDirectory(_ url: URL) -> URL {
+        let fileManager = FileManager.default
+        var candidate = url.standardizedFileURL
+        while !fileManager.fileExists(atPath: candidate.path) {
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path { break }
+            candidate = parent
+        }
+        return candidate
     }
 }
