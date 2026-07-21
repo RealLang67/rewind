@@ -171,7 +171,6 @@ struct ClipCard: View {
 struct TrimEditorView: View {
 	let clip: Clip
 	@ObservedObject var appState: AppState
-	@Environment(\.openWindow) private var openWindow
 	@State private var playerView = AVPlayerView()
 	@State private var isUploading = false
 	@State private var uploadSuccess = false
@@ -204,6 +203,10 @@ struct TrimEditorView: View {
 			ToolbarItem {
 				HStack {
 					Menu {
+						Button("Copy to clipboard") {
+							copyClipToPasteboard(clip.url)
+						}
+
 						if appState.catboxEnabled {
 							Button("Upload to Catbox.moe") {
 								uploadClip(clip.url, provider: "catbox")
@@ -224,20 +227,8 @@ struct TrimEditorView: View {
 							}
 						}
 						
-						if !appState.catboxEnabled && !appState.litterboxEnabled {
-							if #available(macOS 14.0, *) {
-								SettingsLink {
-									Text("Open Settings")
-								}
-							} else {
-								Button("Open Settings") {
-									NSApp.activate(ignoringOtherApps: true)
-									openWindow(id: "settings-fallback")
-								}
-							}
-						}
 					} label: {
-						Label("Copy link", systemImage: "link")
+						Label("Share", systemImage: "square.and.arrow.up")
 					}
 					.disabled(isUploading)
 					.popover(isPresented: $showProgressPopover, arrowEdge: .bottom) {
@@ -321,6 +312,11 @@ struct TrimEditorView: View {
 			}
 			isTrimming = false
 		}
+	}
+
+	private func copyClipToPasteboard(_ url: URL) {
+		NSPasteboard.general.clearContents()
+		NSPasteboard.general.writeObjects([url as NSURL])
 	}
 
 	private func uploadClip(_ url: URL, provider: String) {
