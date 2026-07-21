@@ -415,6 +415,12 @@ final class AppState: ObservableObject {
 	/// The most recent content selection, reused for silent restarts and automatic
 	/// retries so the user is not re-prompted mid-session.
 	private var lastContentFilter: UncheckedSendable<SCContentFilter>?
+	/// Consecutive automatic-restart failures with the current `lastContentFilter`.
+	/// If the picked window/app/display has gone away, every retry fails identically
+	/// forever; once this crosses the threshold we drop the stale filter so the next
+	/// attempt falls back to full-display capture instead of looping forever.
+	private var automaticRestartFailureCount = 0
+	private static let maxAutomaticRestartFailuresBeforeFallback = 3
 	private var awaitingScreenGrant = false
 	private var screenGrantPollTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
@@ -705,6 +711,7 @@ final class AppState: ObservableObject {
 				microphoneDeviceID: selectedMicrophoneDeviceID
 			)
 			isCapturing = true
+			automaticRestartFailureCount = 0
 			updateDiscordActivity(.recording(game: nil, joinURL: nil))
 			playRecordingStartFeedback()
 			automaticCaptureRetryTask?.cancel()
@@ -714,6 +721,15 @@ final class AppState: ObservableObject {
 
 			if isAutomatic {
 				AppLog.error(.app, "Automatic capture start failed", error)
+				automaticRestartFailureCount += 1
+				if automaticRestartFailureCount >= Self.maxAutomaticRestartFailuresBeforeFallback {
+					AppLog.error(
+						.app,
+						"Automatic capture repeatedly failed with the previous capture target; falling back to full-display capture."
+					)
+					lastContentFilter = nil
+					automaticRestartFailureCount = 0
+				}
 				scheduleCaptureRetry()
 				return
 			}
