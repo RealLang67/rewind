@@ -29,6 +29,8 @@ struct AppSettings: Codable {
 	var errorFeedbackVolume: Double
 	var errorFeedbackSoundID: String
 	var discordRPCEnabled: Bool
+	var shareGamePresenceEnabled: Bool
+	var shareRobloxExperienceEnabled: Bool
 	var fileLoggingEnabled: Bool
 	var crashReportingEnabled: Bool
 	var betaUpdatesEnabled: Bool
@@ -63,6 +65,8 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: 20,
 		errorFeedbackSoundID: FeedbackSound.defaultError.id,
 		discordRPCEnabled: true,
+		shareGamePresenceEnabled: true,
+		shareRobloxExperienceEnabled: true,
 		fileLoggingEnabled: false,
 		crashReportingEnabled: true,
 		betaUpdatesEnabled: false,
@@ -98,6 +102,8 @@ struct AppSettings: Codable {
 		case errorFeedbackVolume
 		case errorFeedbackSoundID
 		case discordRPCEnabled
+		case shareGamePresenceEnabled
+		case shareRobloxExperienceEnabled
 		case fileLoggingEnabled
 		case crashReportingEnabled
 		case betaUpdatesEnabled
@@ -133,6 +139,8 @@ struct AppSettings: Codable {
 		errorFeedbackVolume: Double,
 		errorFeedbackSoundID: String,
 		discordRPCEnabled: Bool,
+		shareGamePresenceEnabled: Bool,
+		shareRobloxExperienceEnabled: Bool,
 		fileLoggingEnabled: Bool,
 		crashReportingEnabled: Bool,
 		betaUpdatesEnabled: Bool,
@@ -166,6 +174,8 @@ struct AppSettings: Codable {
 		self.errorFeedbackVolume = errorFeedbackVolume
 		self.errorFeedbackSoundID = errorFeedbackSoundID
 		self.discordRPCEnabled = discordRPCEnabled
+		self.shareGamePresenceEnabled = shareGamePresenceEnabled
+		self.shareRobloxExperienceEnabled = shareRobloxExperienceEnabled
 		self.fileLoggingEnabled = fileLoggingEnabled
 		self.crashReportingEnabled = crashReportingEnabled
 		self.betaUpdatesEnabled = betaUpdatesEnabled
@@ -211,6 +221,8 @@ struct AppSettings: Codable {
 		errorFeedbackSoundID = try container.decodeIfPresent(String.self, forKey: .errorFeedbackSoundID)
 			?? FeedbackSound.defaultError.id
 		discordRPCEnabled = try container.decodeIfPresent(Bool.self, forKey: .discordRPCEnabled) ?? true
+		shareGamePresenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareGamePresenceEnabled) ?? true
+		shareRobloxExperienceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareRobloxExperienceEnabled) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
 		crashReportingEnabled = try container.decodeIfPresent(Bool.self, forKey: .crashReportingEnabled) ?? true
 		betaUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .betaUpdatesEnabled) ?? false
@@ -253,6 +265,8 @@ struct AppSettings: Codable {
 		try container.encode(errorFeedbackVolume, forKey: .errorFeedbackVolume)
 		try container.encode(errorFeedbackSoundID, forKey: .errorFeedbackSoundID)
 		try container.encode(discordRPCEnabled, forKey: .discordRPCEnabled)
+		try container.encode(shareGamePresenceEnabled, forKey: .shareGamePresenceEnabled)
+		try container.encode(shareRobloxExperienceEnabled, forKey: .shareRobloxExperienceEnabled)
 		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
 		try container.encode(crashReportingEnabled, forKey: .crashReportingEnabled)
 		try container.encode(betaUpdatesEnabled, forKey: .betaUpdatesEnabled)

@@ -493,6 +493,14 @@ private struct IntegrationsSettingsPane: View {
 				Toggle(isOn: $appState.discordRPCEnabled) {
 					HelpLabel("Enable Discord RPC", help: "Shows your recording status on your Discord profile.")
 				}
+				Toggle(isOn: $appState.shareGamePresenceEnabled) {
+					HelpLabel("Show the game you're playing", help: "Adds the game you're playing to your Discord status. Turn this off to show only that you're recording, without naming the game.")
+				}
+				.disabled(!appState.discordRPCEnabled)
+				Toggle(isOn: $appState.shareRobloxExperienceEnabled) {
+					HelpLabel("Show your Roblox experience", help: "Shows exactly which Roblox experience you're in, with a button friends can use to join you. Turn this off to show just \"Roblox\".")
+				}
+				.disabled(!appState.discordRPCEnabled || !appState.shareGamePresenceEnabled)
 			}
 			.disabled(settingsLocked)
 

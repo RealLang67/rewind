@@ -3,28 +3,58 @@ import Foundation
 
 enum DiscordActivityState: Equatable {
 	case idle
-	case recording(game: String?, joinURL: String?)
+	case recording(game: String?, joinURL: String?, artURL: String?)
 
 	var isRecording: Bool {
 		if case .recording = self { return true }
 		return false
 	}
 
+	var name: String {
+		switch self {
+		case .idle:
+			return "Rewind"
+		case let .recording(game, _, _):
+			if let game, !game.isEmpty { return game }
+			return "Rewind"
+		}
+	}
+
 	var details: String {
 		switch self {
 		case .idle:
 			return "Idling..."
-		case let .recording(game, _):
+		case let .recording(game, _, _):
 			if let game, !game.isEmpty {
-				return "Clipping \(game)"
+				return "Clipping \(game) with Rewind"
 			}
 			return "Capturing a game"
 		}
 	}
 
+	var presenceLines: (details: String, state: String?) {
+		switch self {
+		case .idle:
+			return (details, nil)
+		case let .recording(game, _, _):
+			guard let game, !game.isEmpty else { return (details, nil) }
+			return (String("Clipping \(game)".prefix(128)), "with Rewind")
+		}
+	}
+
+	var gameTitle: String? {
+		if case let .recording(game, _, _) = self, let game, !game.isEmpty { return game }
+		return nil
+	}
+
 	/// A server-join link (Roblox), surfaced as a "Join my game" presence button.
 	var joinURL: String? {
-		if case let .recording(_, url) = self { return url }
+		if case let .recording(_, url, _) = self { return url }
+		return nil
+	}
+
+	var artURL: String? {
+		if case let .recording(_, _, url) = self { return url }
 		return nil
 	}
 }
@@ -41,6 +71,7 @@ actor DiscordRPCClient {
 		static let rewindWebsiteURL = "https://github.com/l1zov/rewind"
 		// arRPC mirrors Discord's WebSocket transport 
 		static let webSocketPorts = 6463 ... 6472
+		static let logoAsset = "rewind-logo"
 	}
 
 	private let clientID: String?
@@ -97,10 +128,27 @@ actor DiscordRPCClient {
 		}
 		buttons.append(["label": "Get Rewind", "url": Constants.rewindWebsiteURL])
 
+		var assets: [String: Any] = [:]
+		if let artURL = state.artURL, !artURL.isEmpty {
+			assets["large_image"] = artURL
+			assets["large_text"] = state.gameTitle ?? state.name
+			assets["small_image"] = Constants.logoAsset
+			assets["small_text"] = "Rewind"
+		} else {
+			assets["large_image"] = Constants.logoAsset
+			assets["large_text"] = state.gameTitle ?? "Rewind"
+		}
+
+		let lines = state.presenceLines
 		var activity: [String: Any] = [
-			"details": state.details,
+			"name": state.name,
+			"details": lines.details,
+			"assets": assets,
 			"buttons": buttons,
 		]
+		if let stateLine = lines.state {
+			activity["state"] = stateLine
+		}
 		if let recordingStartedAt {
 			activity["timestamps"] = ["start": Int(recordingStartedAt.timeIntervalSince1970)]
 		}

@@ -296,6 +296,24 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var shareGamePresenceEnabled = AppSettings.default.shareGamePresenceEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard shareGamePresenceEnabled != oldValue else { return }
+			persistSettings()
+			refreshGamePresenceIfRecording()
+		}
+	}
+
+	@Published var shareRobloxExperienceEnabled = AppSettings.default.shareRobloxExperienceEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard shareRobloxExperienceEnabled != oldValue else { return }
+			persistSettings()
+			refreshGamePresenceIfRecording()
+		}
+	}
+
 	@Published var recordMicrophoneEnabled = AppSettings.default.recordMicrophoneEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -467,6 +485,8 @@ final class AppState: ObservableObject {
 		errorFeedbackVolume = settings.errorFeedbackVolume
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
+		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
+		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		crashReportingEnabled = settings.crashReportingEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
@@ -525,6 +545,8 @@ final class AppState: ObservableObject {
 		errorFeedbackVolume = settings.errorFeedbackVolume
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
+		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
+		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		crashReportingEnabled = settings.crashReportingEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
@@ -838,13 +860,22 @@ final class AppState: ObservableObject {
 			while !Task.isCancelled {
 				guard let self, self.isCapturing, self.discordRPCEnabled,
 				      self.discordActivityState.isRecording else { return }
-				let presence = await self.gameDetector.currentGame()
+				// Respect the privacy toggle: when game sharing is off, show only a
+				// generic recording status instead of resolving the running game.
+				let presence = self.shareGamePresenceEnabled
+					? await self.gameDetector.currentGame(enrichRoblox: self.shareRobloxExperienceEnabled)
+					: nil
 				if self.discordActivityState.isRecording {
 					self.updateDiscordActivity(.recording(game: presence?.name, joinURL: presence?.joinURL, artURL: presence?.artURL))
 				}
 				try? await Task.sleep(nanoseconds: 10_000_000_000)
 			}
 		}
+	}
+
+	private func refreshGamePresenceIfRecording() {
+		guard isCapturing, discordRPCEnabled, discordActivityState.isRecording else { return }
+		startGamePresenceUpdates()
 	}
 
 	private func publishDiscordPresenceWithRetry(for state: DiscordActivityState) {
@@ -979,6 +1010,8 @@ final class AppState: ObservableObject {
 				errorFeedbackVolume: errorFeedbackVolume,
 				errorFeedbackSoundID: errorFeedbackSound.id,
 				discordRPCEnabled: discordRPCEnabled,
+				shareGamePresenceEnabled: shareGamePresenceEnabled,
+				shareRobloxExperienceEnabled: shareRobloxExperienceEnabled,
 				fileLoggingEnabled: fileLoggingEnabled,
 				crashReportingEnabled: crashReportingEnabled,
 				betaUpdatesEnabled: betaUpdatesEnabled,

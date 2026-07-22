@@ -1,32 +1,18 @@
 import Foundation
 
-/// Detects the Roblox experience the user is currently playing so it can be
-/// shown in Discord Rich Presence ("Clipping <game>").
-///
-/// It reads Roblox Player's own log files under `~/Library/Logs/Roblox/` to
-/// find the joined place id, then resolves that id to a display name via
-/// Roblox's public web APIs. Nothing is injected into Roblox and no user data
-/// is sent; only a numeric place id is looked up. Returns nil when Roblox
-/// isn't actively running or the game can't be resolved.
-actor GameDetector {
+actor RobloxGameDetector {
 	private var universeIDCache: [String: String] = [:]
 	private var nameCache: [String: String] = [:]
 	private var iconCache: [String: String] = [:]
 	private let session: URLSession
 	private let staleThreshold: TimeInterval
 
-	/// - Parameters:
-	///   - session: URLSession used for the place/universe lookups.
-	///   - staleThreshold: if the newest Roblox log hasn't been written to
-	///     within this window, treat Roblox as inactive (the player logs
-	///     continuously while in a game).
 	init(session: URLSession = URLSession(configuration: .ephemeral),
 	     staleThreshold: TimeInterval = 120) {
 		self.session = session
 		self.staleThreshold = staleThreshold
 	}
-
-	/// Display name of the experience currently being played, or nil.
+	
 	struct Session: Equatable {
 		let placeID: String
 		let jobID: String?
@@ -49,7 +35,7 @@ actor GameDetector {
 		return Experience(name: name, joinURL: joinURL, iconURL: iconURL)
 	}
 
-	// MARK: - Log parsing
+	// - Log parsing ---
 
 	private func logsDirectory() -> URL {
 		FileManager.default.homeDirectoryForCurrentUser
@@ -58,15 +44,11 @@ actor GameDetector {
 
 	private func currentSession() -> Session? {
 		guard let (logURL, modified) = newestLog() else { return nil }
-		// The player writes to the log constantly while in a game; a stale file
-		// means the session ended.
 		guard Date().timeIntervalSince(modified) < staleThreshold else { return nil }
 		guard let content = try? String(contentsOf: logURL, encoding: .utf8) else { return nil }
 		return lastSession(in: content)
 	}
 
-	/// Last joined place + game-instance (job) id in the log. Roblox logs the
-	/// join like: `! Joining game '<jobId>' place 1818 at <ip>`.
 	func lastSession(in log: String) -> Session? {
 		if let regex = try? NSRegularExpression(pattern: #"Joining game '([^']*)' place (\d+)"#) {
 			let range = NSRange(log.startIndex..., in: log)
@@ -80,7 +62,7 @@ actor GameDetector {
 			}
 			if let session { return session }
 		}
-		// Fallback: a placeId field with no job id (no join URL possible).
+		
 		if let placeID = lastPlaceID(in: log) {
 			return Session(placeID: placeID, jobID: nil)
 		}
@@ -105,8 +87,6 @@ actor GameDetector {
 			.max { $0.1 < $1.1 }
 	}
 
-	/// Returns the last place id mentioned in the log (the current game). Roblox
-	/// logs the join like: `! Joining game '<jobId>' place 1818 at <ip>`.
 	func lastPlaceID(in log: String) -> String? {
 		let patterns = [
 			#"Joining game '[^']*' place (\d+)"#,
@@ -126,7 +106,7 @@ actor GameDetector {
 		return nil
 	}
 
-	// MARK: - Name resolution
+	// - Name resolution ---
 
 	private func universeID(forPlace placeID: String) async -> String? {
 		if let cached = universeIDCache[placeID] { return cached }

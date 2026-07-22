@@ -6,7 +6,7 @@ import AppKit
 /// Detection is app-based: it asks macOS for the running GUI applications
 /// (`NSWorkspace`) and matches them against a table of known games plus the
 /// bundled Discord catalog. Roblox is enriched with the specific experience name
-/// via its logs (see `GameDetector`). Returns nil when no known game is up.
+/// via its logs (see `RobloxGameDetector`). Returns nil when no known game is up.
 actor GamePresenceDetector {
 	/// A known game and the substrings that identify its running app. `needles`
 	/// are matched case-insensitively against each app's name, bundle id, and
@@ -71,7 +71,7 @@ actor GamePresenceDetector {
 	]
 
 	private let catalog: [Game]
-	private let roblox: GameDetector
+	private let roblox: RobloxGameDetector
 	private let art: GameArtResolver
 	private let bundledCatalogURL: URL?
 	/// Lazily-parsed `executable-basename -> game name` map distilled from
@@ -79,7 +79,7 @@ actor GamePresenceDetector {
 	private var bundledCatalog: [String: String]?
 
 	init(catalog: [Game] = GamePresenceDetector.defaultCatalog,
-	     roblox: GameDetector = GameDetector(),
+	     roblox: RobloxGameDetector = RobloxGameDetector(),
 	     art: GameArtResolver = GameArtResolver(),
 	     bundledCatalogURL: URL? = Bundle.main.url(forResource: "games", withExtension: "tsv")) {
 		self.catalog = catalog
@@ -101,13 +101,12 @@ actor GamePresenceDetector {
 		}
 	}
 
-	/// The game currently running, or nil.
-	func currentGame() async -> Presence? {
+	func currentGame(enrichRoblox: Bool = true) async -> Presence? {
 		let apps = runningApps()
 		// 1. Curated list first: Roblox's experience/join enrichment plus titles
 		if let game = matchCatalog(apps: apps) {
 			if game.name == "Roblox" {
-				if let experience = await roblox.currentExperience() {
+				if enrichRoblox, let experience = await roblox.currentExperience() {
 					return Presence(name: experience.name, joinURL: experience.joinURL, artURL: experience.iconURL)
 				}
 				return Presence(name: "Roblox")
