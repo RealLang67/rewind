@@ -39,12 +39,20 @@ actor DiscordRPCClient {
 		static let protocolVersion = 1
 		static let connectTimeoutMilliseconds: Int32 = 1500
 		static let rewindWebsiteURL = "https://github.com/l1zov/rewind"
+		// arRPC mirrors Discord's WebSocket transport here.
+		static let webSocketPorts = 6463 ... 6472
 	}
 
 	private let clientID: String?
 	private var enabled = true
 	private var fileHandle: FileHandle?
+	private var webSocket: URLSessionWebSocketTask?
 	private var handshakeCompleted = false
+	private let urlSession: URLSession = {
+		let config = URLSessionConfiguration.ephemeral
+		config.timeoutIntervalForRequest = 2
+		return URLSession(configuration: config)
+	}()
 	private var lastPublishedState: DiscordActivityState?
 	/// When the current recording session began, so the presence can show a live
 	/// elapsed timer that survives game-name refinements.
@@ -108,7 +116,7 @@ actor DiscordRPCClient {
 		]
 
 		do {
-			try send(opcode: .frame, payload: payload)
+			try await sendFrame(payload)
 			lastPublishedState = state
 			return true
 		} catch {
@@ -130,19 +138,19 @@ actor DiscordRPCClient {
 		]
 
 		do {
-			try send(opcode: .frame, payload: payload)
+			try await sendFrame(payload)
 		} catch {
 			AppLog.debug(.app, "DRPC clear error:", error)
 		}
 	}
 
 	private func ensureConnected() async -> Bool {
-		guard clientID != nil else {
+		guard let clientID else {
 			AppLog.debug(.app, "DRPC client id not found")
 			return false
 		}
 
-		if fileHandle != nil, handshakeCompleted {
+		if (fileHandle != nil || webSocket != nil), handshakeCompleted {
 			return true
 		}
 
@@ -162,7 +170,52 @@ actor DiscordRPCClient {
 			}
 		}
 
+		if await connectWebSocket(clientID: clientID) {
+			handshakeCompleted = true
+			return true
+		}
+
 		return false
+	}
+
+	private func connectWebSocket(clientID: String) async -> Bool {
+		for port in Constants.webSocketPorts {
+			guard let url = URL(string: "ws://127.0.0.1:\(port)/?v=1&client_id=\(clientID)&encoding=json") else { continue }
+			var request = URLRequest(url: url)
+			// arRPC and Discord both validate the WebSocket Origin
+			request.setValue("https://discord.com", forHTTPHeaderField: "Origin")
+			let task = urlSession.webSocketTask(with: request)
+			task.resume()
+			if await readReadyDispatch(on: task) {
+				webSocket = task
+				AppLog.info(.app, "DRPC connected (websocket):", port)
+				return true
+			}
+			task.cancel(with: .goingAway, reason: nil)
+		}
+		return false
+	}
+
+	private func readReadyDispatch(on task: URLSessionWebSocketTask) async -> Bool {
+		guard let message = try? await task.receive(),
+		      case let .string(text) = message,
+		      let data = text.data(using: .utf8),
+		      let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+		else { return false }
+		return frame["cmd"] as? String == "DISPATCH" && frame["evt"] as? String == "READY"
+	}
+
+	private func sendFrame(_ payload: [String: Any]) async throws {
+		if fileHandle != nil {
+			try send(opcode: .frame, payload: payload)
+			return
+		}
+		if let webSocket {
+			let data = try JSONSerialization.data(withJSONObject: payload)
+			try await webSocket.send(.string(String(decoding: data, as: UTF8.self)))
+			return
+		}
+		throw DiscordError.notConnected
 	}
 
 	private func ipcSocketPaths() -> [String] {
@@ -276,6 +329,8 @@ actor DiscordRPCClient {
 			try? fileHandle.close()
 		}
 		fileHandle = nil
+		webSocket?.cancel(with: .goingAway, reason: nil)
+		webSocket = nil
 		handshakeCompleted = false
 	}
 
