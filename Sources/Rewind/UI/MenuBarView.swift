@@ -17,14 +17,6 @@ struct MenuBarView: View {
 		.disabled(!appState.isCapturing)
 		.applyHotkey(appState.hotkey)
 
-		Toggle("Record Microphone", isOn: $appState.recordMicrophoneEnabled)
-			.toggleStyle(.checkbox)
-			.disabled(!AppState.supportsMicrophoneCapture)
-			.help(
-				AppState.supportsMicrophoneCapture
-					? "Include microphone audio in recordings."
-					: "Requires macOS 13 or later.")
-
 		Divider()
 
 		Button("Open Last Clip") {
@@ -86,6 +78,11 @@ struct MenuBarView: View {
 		}
 		.disabled(!appState.permissionState.screenRecording)
 
+		Menu("Microphone") {
+			microphoneMenuContent
+		}
+		.disabled(!AppState.supportsMicrophoneCapture)
+
 		Button("Show in Finder") {
 			showLastClipInFinder()
 		}
@@ -127,6 +124,47 @@ struct MenuBarView: View {
 
 	private var recordingButtonDisabled: Bool {
 		appState.alwaysRecordEnabled && appState.isCapturing
+	}
+
+	@ViewBuilder
+	private var microphoneMenuContent: some View {
+		Toggle(
+			"None",
+			isOn: Binding(
+				get: { !appState.recordMicrophoneEnabled },
+				set: { isEnabled in
+					if isEnabled {
+						appState.recordMicrophoneEnabled = false
+					}
+				}
+			)
+		)
+		.toggleStyle(.checkbox)
+
+		Divider()
+
+		Toggle("System Default", isOn: microphoneSelection(nil))
+			.toggleStyle(.checkbox)
+
+		ForEach(appState.availableMicrophones) { device in
+			Toggle(device.name, isOn: microphoneSelection(device.id))
+				.toggleStyle(.checkbox)
+		}
+	}
+
+	private func microphoneSelection(_ deviceID: String?) -> Binding<Bool> {
+		Binding(
+			get: {
+				appState.recordMicrophoneEnabled
+					&& appState.selectedMicrophoneDeviceID == deviceID
+			},
+			set: { isEnabled in
+				if isEnabled {
+					appState.selectedMicrophoneDeviceID = deviceID
+					appState.recordMicrophoneEnabled = true
+				}
+			}
+		)
 	}
 
 	@ViewBuilder
