@@ -22,16 +22,6 @@ enum DiscordActivityState: Equatable {
 		}
 	}
 
-	/// Second (smaller) presence line under `details`.
-	var stateLine: String? {
-		switch self {
-		case .idle:
-			return nil
-		case .recording:
-			return "Instant replay armed"
-		}
-	}
-
 	/// A server-join link (Roblox), surfaced as a "Join my game" presence button.
 	var joinURL: String? {
 		if case let .recording(_, url) = self { return url }
@@ -103,9 +93,6 @@ actor DiscordRPCClient {
 			"details": state.details,
 			"buttons": buttons,
 		]
-		if let stateLine = state.stateLine {
-			activity["state"] = stateLine
-		}
 		if let recordingStartedAt {
 			activity["timestamps"] = ["start": Int(recordingStartedAt.timeIntervalSince1970)]
 		}
