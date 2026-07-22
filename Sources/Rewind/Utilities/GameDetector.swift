@@ -9,7 +9,9 @@ import Foundation
 /// is sent; only a numeric place id is looked up. Returns nil when Roblox
 /// isn't actively running or the game can't be resolved.
 actor GameDetector {
-	private var placeNameCache: [String: String] = [:]
+	private var universeIDCache: [String: String] = [:]
+	private var nameCache: [String: String] = [:]
+	private var iconCache: [String: String] = [:]
 	private let session: URLSession
 	private let staleThreshold: TimeInterval
 
@@ -30,23 +32,21 @@ actor GameDetector {
 		let jobID: String?
 	}
 
-	/// The current experience's display name plus a Roblox server-join URL (when
-	/// the game instance id is known), or nil when not in a game.
-	func currentExperience() async -> (name: String, joinURL: String?)? {
-		guard let session = currentSession() else { return nil }
+	struct Experience: Equatable {
 		let name: String
-		if let cached = placeNameCache[session.placeID] {
-			name = cached
-		} else if let resolved = await resolveGameName(placeID: session.placeID) {
-			placeNameCache[session.placeID] = resolved
-			name = resolved
-		} else {
-			return nil
-		}
+		let joinURL: String?
+		let iconURL: String?
+	}
+
+	func currentExperience() async -> Experience? {
+		guard let session = currentSession() else { return nil }
+		guard let universeID = await universeID(forPlace: session.placeID) else { return nil }
+		guard let name = await gameName(forUniverse: universeID) else { return nil }
+		let iconURL = await gameIcon(forUniverse: universeID)
 		let joinURL = session.jobID.map {
 			"https://www.roblox.com/games/start?placeId=\(session.placeID)&gameInstanceId=\($0)"
 		}
-		return (name, joinURL)
+		return Experience(name: name, joinURL: joinURL, iconURL: iconURL)
 	}
 
 	// MARK: - Log parsing
@@ -128,22 +128,20 @@ actor GameDetector {
 
 	// MARK: - Name resolution
 
-	private func resolveGameName(placeID: String) async -> String? {
-		guard let universeID = await universeID(forPlace: placeID) else { return nil }
-		return await gameName(forUniverse: universeID)
-	}
-
 	private func universeID(forPlace placeID: String) async -> String? {
+		if let cached = universeIDCache[placeID] { return cached }
 		let urlString = "https://apis.roblox.com/universes/v1/places/\(placeID)/universe"
 		guard let url = URL(string: urlString),
 		      let (data, _) = try? await session.data(from: url),
 		      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
 		else { return nil }
-		if let id = json["universeId"] as? Int { return String(id) }
-		return json["universeId"] as? String
+		let id = (json["universeId"] as? Int).map(String.init) ?? json["universeId"] as? String
+		if let id { universeIDCache[placeID] = id }
+		return id
 	}
 
 	private func gameName(forUniverse universeID: String) async -> String? {
+		if let cached = nameCache[universeID] { return cached }
 		let urlString = "https://games.roblox.com/v1/games?universeIds=\(universeID)"
 		guard let url = URL(string: urlString),
 		      let (data, _) = try? await session.data(from: url),
@@ -151,6 +149,22 @@ actor GameDetector {
 		      let entries = json["data"] as? [[String: Any]],
 		      let name = entries.first?["name"] as? String
 		else { return nil }
+		nameCache[universeID] = name
 		return name
+	}
+
+	private func gameIcon(forUniverse universeID: String) async -> String? {
+		if let cached = iconCache[universeID] { return cached }
+		let urlString = "https://thumbnails.roblox.com/v1/games/icons?universeIds=\(universeID)&size=512x512&format=Png&isCircular=false"
+		guard let url = URL(string: urlString),
+		      let (data, _) = try? await session.data(from: url),
+		      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+		      let entries = json["data"] as? [[String: Any]],
+		      let first = entries.first,
+		      first["state"] as? String == "Completed",
+		      let imageURL = first["imageUrl"] as? String
+		else { return nil }
+		iconCache[universeID] = imageURL
+		return imageURL
 	}
 }

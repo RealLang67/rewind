@@ -712,7 +712,7 @@ final class AppState: ObservableObject {
 			)
 			isCapturing = true
 			automaticRestartFailureCount = 0
-			updateDiscordActivity(.recording(game: nil, joinURL: nil))
+			updateDiscordActivity(.recording(game: nil, joinURL: nil, artURL: nil))
 			playRecordingStartFeedback()
 			automaticCaptureRetryTask?.cancel()
 		} catch {
@@ -840,7 +840,7 @@ final class AppState: ObservableObject {
 				      self.discordActivityState.isRecording else { return }
 				let presence = await self.gameDetector.currentGame()
 				if self.discordActivityState.isRecording {
-					self.updateDiscordActivity(.recording(game: presence?.name, joinURL: presence?.joinURL))
+					self.updateDiscordActivity(.recording(game: presence?.name, joinURL: presence?.joinURL, artURL: presence?.artURL))
 				}
 				try? await Task.sleep(nanoseconds: 10_000_000_000)
 			}

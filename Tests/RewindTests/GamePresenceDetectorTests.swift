@@ -2,58 +2,67 @@
 import XCTest
 
 final class GamePresenceDetectorTests: XCTestCase {
-	func testMatchesMinecraftFromJavaArgs() async {
+	private func app(_ name: String, bundleID: String = "", executable: String = "") -> GamePresenceDetector.RunningApp {
+		GamePresenceDetector.RunningApp(name: name, bundleID: bundleID, executable: executable)
+	}
+
+	func testMatchesRobloxByExecutable() async {
 		let detector = GamePresenceDetector()
-		let commands = [
-			"/usr/bin/java -Xmx2G -cp /Users/x/.minecraft/versions net.minecraft.client.main.Main --username player",
-		]
-		let game = await detector.matchRunningGame(commands: commands)
+		let game = await detector.matchCatalog(apps: [app("Roblox", bundleID: "com.roblox.RobloxPlayer", executable: "RobloxPlayer")])
+		XCTAssertEqual(game?.name, "Roblox")
+	}
+
+	func testMatchesMinecraftLauncher() async {
+		let detector = GamePresenceDetector()
+		let game = await detector.matchCatalog(apps: [app("Minecraft", bundleID: "com.mojang.minecraftlauncher", executable: "Minecraft")])
 		XCTAssertEqual(game?.name, "Minecraft")
 	}
 
-	func testMatchesNativeAppByPath() async {
+	func testMatchesNativeAppByName() async {
 		let detector = GamePresenceDetector()
-		let commands = ["/Applications/Terraria.app/Contents/MacOS/Terraria"]
-		let game = await detector.matchRunningGame(commands: commands)
+		let game = await detector.matchCatalog(apps: [app("Terraria", executable: "Terraria")])
 		XCTAssertEqual(game?.name, "Terraria")
 	}
 
 	func testMatchesLeagueClient() async {
 		let detector = GamePresenceDetector()
-		let commands = ["/Applications/League of Legends.app/Contents/LoL/LeagueClient.app/Contents/MacOS/LeagueClient"]
-		let game = await detector.matchRunningGame(commands: commands)
+		let game = await detector.matchCatalog(apps: [app("League of Legends", executable: "LeagueClient")])
 		XCTAssertEqual(game?.name, "League of Legends")
 	}
 
 	func testMatchingIsCaseInsensitive() async {
 		let detector = GamePresenceDetector()
-		let game = await detector.matchRunningGame(commands: ["/games/robloxplayer"])
+		let game = await detector.matchCatalog(apps: [app("", executable: "robloxplayer")])
 		XCTAssertEqual(game?.name, "Roblox")
 	}
 
-	func testReturnsNilForNonGameProcesses() async {
+	func testReturnsNilForNonGameApps() async {
 		let detector = GamePresenceDetector()
-		let commands = ["/usr/sbin/cfprefsd", "/bin/zsh", "/System/Library/Frameworks/…/WindowServer"]
-		let game = await detector.matchRunningGame(commands: commands)
+		let apps = [
+			app("Finder", bundleID: "com.apple.finder", executable: "Finder"),
+			app("Safari", bundleID: "com.apple.Safari", executable: "Safari"),
+		]
+		let game = await detector.matchCatalog(apps: apps)
 		XCTAssertNil(game)
 	}
 
 	// Bundled Discord catalog (basename lookup).
 
-	func testCatalogMatchesWindowsExeUnderWine() {
-		let catalog = ["hades.exe": "Hades", "celeste.exe": "Celeste"]
-		let cmd = ["/Applications/CrossOver.app/Contents/wine64 C:\\Games\\Hades\\Hades.exe --fullscreen"]
-		XCTAssertEqual(GamePresenceDetector.match(commands: cmd, in: catalog), "Hades")
-	}
-
 	func testCatalogMatchesNativeAppBinary() {
 		let catalog = ["deadcells": "Dead Cells"]
-		let cmd = ["/Applications/Dead Cells.app/Contents/MacOS/deadcells"]
-		XCTAssertEqual(GamePresenceDetector.match(commands: cmd, in: catalog), "Dead Cells")
+		let apps = [GamePresenceDetector.RunningApp(name: "Dead Cells", bundleID: "", executable: "deadcells")]
+		XCTAssertEqual(GamePresenceDetector.match(apps: apps, in: catalog), "Dead Cells")
 	}
 
-	func testCatalogNoMatchForSystemProcesses() {
-		let catalog = ["hades.exe": "Hades"]
-		XCTAssertNil(GamePresenceDetector.match(commands: ["/bin/zsh", "/usr/sbin/cfprefsd"], in: catalog))
+	func testCatalogMatchesAppSuffix() {
+		let catalog = ["celeste": "Celeste"]
+		let apps = [GamePresenceDetector.RunningApp(name: "Celeste", bundleID: "", executable: "Celeste.app")]
+		XCTAssertEqual(GamePresenceDetector.match(apps: apps, in: catalog), "Celeste")
+	}
+
+	func testCatalogNoMatchForSystemApps() {
+		let catalog = ["hades": "Hades"]
+		let apps = [GamePresenceDetector.RunningApp(name: "Finder", bundleID: "com.apple.finder", executable: "Finder")]
+		XCTAssertNil(GamePresenceDetector.match(apps: apps, in: catalog))
 	}
 }

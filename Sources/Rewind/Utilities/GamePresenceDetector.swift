@@ -1,47 +1,78 @@
-import Foundation
+import AppKit
 
 /// Figures out which game the user is currently playing so it can be shown in
 /// Discord Rich Presence ("Clipping <game>").
 ///
-/// Detection is process-based: it lists running processes and matches their
-/// command lines against a table of known games. That covers most titles with
-/// no per-game API. Roblox is enriched with the specific experience name via
-/// its logs (see `GameDetector`). Returns nil when no known game is up.
+/// Detection is app-based: it asks macOS for the running GUI applications
+/// (`NSWorkspace`) and matches them against a table of known games plus the
+/// bundled Discord catalog. Roblox is enriched with the specific experience name
+/// via its logs (see `GameDetector`). Returns nil when no known game is up.
 actor GamePresenceDetector {
-	/// A known game and the substrings that identify its running process.
-	/// `needles` are matched case-insensitively against each process command
-	/// line, so they work for native `.app` bundles and launcher/`java`
-	/// processes alike. Order matters: earlier entries win.
+	/// A known game and the substrings that identify its running app. `needles`
+	/// are matched case-insensitively against each app's name, bundle id, and
+	/// executable name. Order matters: earlier entries win.
 	struct Game {
 		let name: String
 		let needles: [String]
 	}
 
+	struct RunningApp: Equatable {
+		let name: String
+		let bundleID: String
+		let executable: String
+
+		var haystacks: [String] { [name, bundleID, executable] }
+	}
+
 	static let defaultCatalog: [Game] = [
-		Game(name: "Roblox", needles: ["RobloxPlayer"]),
-		Game(name: "Minecraft", needles: ["net.minecraft.client", "minecraft.client", "MinecraftLauncher", "/Minecraft.app/", "lunarclient", "PrismLauncher"]),
-		Game(name: "League of Legends", needles: ["LeagueClient", "League of Legends"]),
-		Game(name: "Teamfight Tactics", needles: ["TFT", "Teamfight"]),
-		Game(name: "Valorant", needles: ["VALORANT", "RiotClientServices"]),
-		Game(name: "Counter-Strike 2", needles: ["cs2.app", "/cs2"]),
+		Game(name: "Roblox", needles: ["roblox"]),
+		Game(name: "Minecraft", needles: ["minecraft", "lunarclient", "prismlauncher"]),
+		Game(name: "League of Legends", needles: ["leagueclient", "league of legends"]),
+		Game(name: "Teamfight Tactics", needles: ["teamfight"]),
 		Game(name: "Dota 2", needles: ["dota2"]),
-		Game(name: "Team Fortress 2", needles: ["TF2.app", "hl2_osx"]),
-		Game(name: "Terraria", needles: ["Terraria"]),
-		Game(name: "Stardew Valley", needles: ["StardewValley", "Stardew Valley"]),
-		Game(name: "Balatro", needles: ["Balatro"]),
-		Game(name: "Hades", needles: ["Hades.app", "/Hades"]),
-		Game(name: "Celeste", needles: ["Celeste.app"]),
-		Game(name: "Vampire Survivors", needles: ["VampireSurvivors", "Vampire Survivors"]),
+		Game(name: "Team Fortress 2", needles: ["tf2", "hl2_osx"]),
+		Game(name: "Terraria", needles: ["terraria"]),
+		Game(name: "Stardew Valley", needles: ["stardew"]),
+		Game(name: "Balatro", needles: ["balatro"]),
+		Game(name: "Hades II", needles: ["hades ii", "hades2"]),
+		Game(name: "Hades", needles: ["hades"]),
+		Game(name: "Celeste", needles: ["celeste"]),
+		Game(name: "Vampire Survivors", needles: ["vampiresurvivors", "vampire survivors"]),
 		Game(name: "Factorio", needles: ["factorio"]),
-		Game(name: "Among Us", needles: ["Among Us"]),
-		Game(name: "World of Warcraft", needles: ["World of Warcraft"]),
-		Game(name: "Final Fantasy XIV", needles: ["ffxiv", "FINAL FANTASY XIV"]),
-		Game(name: "Old School RuneScape", needles: ["RuneLite", "Old School RuneScape"]),
-		Game(name: "osu!", needles: ["osu!.app", "/osu!"]),
+		Game(name: "Among Us", needles: ["among us"]),
+		Game(name: "World of Warcraft", needles: ["world of warcraft"]),
+		Game(name: "Final Fantasy XIV", needles: ["ffxiv", "final fantasy xiv"]),
+		Game(name: "Old School RuneScape", needles: ["runelite", "old school runescape"]),
+		Game(name: "osu!", needles: ["osu!"]),
+		Game(name: "Baldur's Gate 3", needles: ["baldur", "bg3"]),
+		Game(name: "Cyberpunk 2077", needles: ["cyberpunk"]),
+		Game(name: "Resident Evil 4", needles: ["resident evil 4"]),
+		Game(name: "Resident Evil Village", needles: ["resident evil village"]),
+		Game(name: "No Man's Sky", needles: ["no man", "nomanssky"]),
+		Game(name: "Civilization VI", needles: ["civilization vi", "civ6"]),
+		Game(name: "Stray", needles: ["stray"]),
+		Game(name: "The Sims 4", needles: ["sims 4", "thesims4"]),
+		Game(name: "Hollow Knight", needles: ["hollow knight", "hollow_knight"]),
+		Game(name: "Slay the Spire", needles: ["slay the spire", "slaythespire"]),
+		Game(name: "Disco Elysium", needles: ["disco elysium", "discoelysium"]),
+		Game(name: "Cities: Skylines", needles: ["cities: skylines", "cities skylines", "citiesskylines"]),
+		Game(name: "Divinity: Original Sin 2", needles: ["divinity", "original sin"]),
+		Game(name: "Don't Starve Together", needles: ["starve", "dontstarve"]),
+		Game(name: "RimWorld", needles: ["rimworld"]),
+		Game(name: "Portal 2", needles: ["portal 2", "portal2"]),
+		Game(name: "Football Manager", needles: ["football manager", "footballmanager"]),
+		Game(name: "Total War", needles: ["total war", "totalwar"]),
+		Game(name: "Cult of the Lamb", needles: ["cult of the lamb", "cultofthelamb"]),
+		Game(name: "Dave the Diver", needles: ["dave the diver", "davethediver"]),
+		Game(name: "Baba Is You", needles: ["baba is you", "babaisyou"]),
+		Game(name: "Frostpunk", needles: ["frostpunk"]),
+		Game(name: "Dead Cells", needles: ["dead cells", "deadcells"]),
+		Game(name: "Northgard", needles: ["northgard"]),
 	]
 
 	private let catalog: [Game]
 	private let roblox: GameDetector
+	private let art: GameArtResolver
 	private let bundledCatalogURL: URL?
 	/// Lazily-parsed `executable-basename -> game name` map distilled from
 	/// Discord's detectable-games database (see scripts/generate-game-catalog.py).
@@ -49,9 +80,11 @@ actor GamePresenceDetector {
 
 	init(catalog: [Game] = GamePresenceDetector.defaultCatalog,
 	     roblox: GameDetector = GameDetector(),
+	     art: GameArtResolver = GameArtResolver(),
 	     bundledCatalogURL: URL? = Bundle.main.url(forResource: "games", withExtension: "tsv")) {
 		self.catalog = catalog
 		self.roblox = roblox
+		self.art = art
 		self.bundledCatalogURL = bundledCatalogURL
 	}
 
@@ -59,53 +92,62 @@ actor GamePresenceDetector {
 	struct Presence: Equatable {
 		let name: String
 		let joinURL: String?
+		let artURL: String?
+
+		init(name: String, joinURL: String? = nil, artURL: String? = nil) {
+			self.name = name
+			self.joinURL = joinURL
+			self.artURL = artURL
+		}
 	}
 
 	/// The game currently running, or nil.
 	func currentGame() async -> Presence? {
-		let commands = runningProcessCommands()
+		let apps = runningApps()
 		// 1. Curated list first: Roblox's experience/join enrichment plus titles
-		//    that need loose or argument-based matching.
-		if let game = matchRunningGame(commands: commands) {
+		if let game = matchCatalog(apps: apps) {
 			if game.name == "Roblox" {
 				if let experience = await roblox.currentExperience() {
-					return Presence(name: experience.name, joinURL: experience.joinURL)
+					return Presence(name: experience.name, joinURL: experience.joinURL, artURL: experience.iconURL)
 				}
-				return Presence(name: "Roblox", joinURL: nil)
+				return Presence(name: "Roblox")
 			}
-			return Presence(name: game.name, joinURL: nil)
+			return Presence(name: game.name, artURL: await art.artURL(for: game.name))
 		}
 		// 2. Discord's detectable-games catalog (native macOS games).
-		if let name = matchBundledCatalog(commands: commands) {
-			return Presence(name: name, joinURL: nil)
+		if let name = matchBundledCatalog(apps: apps) {
+			return Presence(name: name, artURL: await art.artURL(for: name))
 		}
 		return nil
 	}
 
-	/// First catalog game whose process is currently running.
-	func matchRunningGame(commands: [String]? = nil) -> Game? {
-		let running = commands ?? runningProcessCommands()
+	/// First catalog game whose app is currently running.
+	func matchCatalog(apps: [RunningApp]? = nil) -> Game? {
+		let running = apps ?? runningApps()
 		return catalog.first { game in
 			game.needles.contains { needle in
-				running.contains { $0.range(of: needle, options: .caseInsensitive) != nil }
+				running.contains { app in
+					app.haystacks.contains { $0.range(of: needle, options: .caseInsensitive) != nil }
+				}
 			}
 		}
 	}
 
-	/// Match process executables against the bundled Discord catalog by basename.
-	func matchBundledCatalog(commands: [String]) -> String? {
+	/// Match running apps against the bundled Discord catalog by basename.
+	func matchBundledCatalog(apps: [RunningApp]) -> String? {
 		let catalog = loadBundledCatalog()
 		guard !catalog.isEmpty else { return nil }
-		return Self.match(commands: commands, in: catalog)
+		return Self.match(apps: apps, in: catalog)
 	}
 
 	/// Pure basename lookup, split out so it can be tested without the bundle.
-	static func match(commands: [String], in catalog: [String: String]) -> String? {
-		for command in commands {
-			for token in command.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
-				let base = token.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last
-					.map(String.init) ?? String(token)
-				let key = base.lowercased()
+	static func match(apps: [RunningApp], in catalog: [String: String]) -> String? {
+		for app in apps {
+			// executable basename is precise
+			// the localized name is a looser fallback
+			for candidate in [app.executable, app.name] {
+				let key = candidate.lowercased()
+				if key.isEmpty { continue }
 				if let name = catalog[key] { return name }
 				if key.hasSuffix(".app"), let name = catalog[String(key.dropLast(4))] { return name }
 			}
@@ -127,24 +169,17 @@ actor GamePresenceDetector {
 		return map
 	}
 
-	private func runningProcessCommands() -> [String] {
-		let process = Process()
-		// Full command lines (with args) so Java-launched games like Minecraft
-		// match on their main-class arguments, not just the `java` binary name.
-		process.executableURL = URL(fileURLWithPath: "/bin/ps")
-		process.arguments = ["-A", "-o", "command="]
-		let out = Pipe()
-		process.standardOutput = out
-		process.standardError = Pipe()
-		do {
-			try process.run()
-			let data = out.fileHandleForReading.readDataToEndOfFile()
-			process.waitUntilExit()
-			return String(decoding: data, as: UTF8.self)
-				.split(separator: "\n")
-				.map(String.init)
-		} catch {
-			return []
+	private func runningApps() -> [RunningApp] {
+		NSWorkspace.shared.runningApplications.compactMap { app in
+			// only foreground GUI app
+			guard app.activationPolicy == .regular else { return nil }
+			let running = RunningApp(
+				name: app.localizedName ?? "",
+				bundleID: app.bundleIdentifier ?? "",
+				executable: app.executableURL?.lastPathComponent ?? ""
+			)
+			guard running.haystacks.contains(where: { !$0.isEmpty }) else { return nil }
+			return running
 		}
 	}
 }

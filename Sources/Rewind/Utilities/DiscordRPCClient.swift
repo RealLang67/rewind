@@ -39,7 +39,7 @@ actor DiscordRPCClient {
 		static let protocolVersion = 1
 		static let connectTimeoutMilliseconds: Int32 = 1500
 		static let rewindWebsiteURL = "https://github.com/l1zov/rewind"
-		// arRPC mirrors Discord's WebSocket transport here.
+		// arRPC mirrors Discord's WebSocket transport 
 		static let webSocketPorts = 6463 ... 6472
 	}
 
