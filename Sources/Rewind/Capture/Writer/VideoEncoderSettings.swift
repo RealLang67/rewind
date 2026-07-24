@@ -21,7 +21,7 @@ enum VideoEncoderSettings {
     /// writer queue, causing encoder backpressure and stutter.
     static func sourcePixelFormat(for quality: QualityPreset) -> OSType {
         _ = quality
-        return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
     }
 
     static func outputSettings(
