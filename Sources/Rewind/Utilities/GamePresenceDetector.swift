@@ -6,7 +6,9 @@ import AppKit
 /// Detection is app-based: it asks macOS for the running GUI applications
 /// (`NSWorkspace`) and matches them against a table of known games plus the
 /// bundled Discord catalog. Roblox is enriched with the specific experience name
-/// via its logs (see `RobloxGameDetector`). Returns nil when no known game is up.
+/// via its logs (see `RobloxGameDetector`); Dota 2 is enriched with the current
+/// hero via Valve's Game State Integration (see `DotaGSIServer`). Returns nil
+/// when no known game is up.
 actor GamePresenceDetector {
 	/// A known game and the substrings that identify its running app. `needles`
 	/// are matched case-insensitively against each app's name, bundle id, and
@@ -72,6 +74,7 @@ actor GamePresenceDetector {
 
 	private let catalog: [Game]
 	private let roblox: RobloxGameDetector
+	private let dotaGSI: DotaGSIServer?
 	private let art: GameArtResolver
 	private let bundledCatalogURL: URL?
 	/// Lazily-parsed `executable-basename -> game name` map distilled from
@@ -80,10 +83,12 @@ actor GamePresenceDetector {
 
 	init(catalog: [Game] = GamePresenceDetector.defaultCatalog,
 	     roblox: RobloxGameDetector = RobloxGameDetector(),
+	     dotaGSI: DotaGSIServer? = nil,
 	     art: GameArtResolver = GameArtResolver(),
 	     bundledCatalogURL: URL? = Bundle.main.url(forResource: "games", withExtension: "tsv")) {
 		self.catalog = catalog
 		self.roblox = roblox
+		self.dotaGSI = dotaGSI
 		self.art = art
 		self.bundledCatalogURL = bundledCatalogURL
 	}
@@ -110,6 +115,9 @@ actor GamePresenceDetector {
 					return Presence(name: experience.name, joinURL: experience.joinURL, artURL: experience.iconURL)
 				}
 				return Presence(name: "Roblox")
+			}
+			if game.name == "Dota 2", let hero = dotaGSI?.currentState()?.heroName {
+				return Presence(name: "\(game.name) (\(hero))", artURL: await art.artURL(for: game.name))
 			}
 			return Presence(name: game.name, artURL: await art.artURL(for: game.name))
 		}

@@ -424,7 +424,8 @@ final class AppState: ObservableObject {
 	private var storageMonitor: StorageMonitor!
 	private var discordActivityState: DiscordActivityState = .idle
 	private var discordPresenceRetryTask: Task<Void, Never>?
-	private let gameDetector = GamePresenceDetector()
+	private let dotaGSIServer: DotaGSIServer?
+	private let gameDetector: GamePresenceDetector
 	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
 	/// Keeps the system content picker alive while it is presented (it is only an
@@ -455,6 +456,15 @@ final class AppState: ObservableObject {
 		self.clipLibrary = clipLibrary
 		self.discordRPCClient = discordRPCClient
 		self.hotkeyManager = hotkeyManager
+
+		let dotaGSIAuthToken = UUID().uuidString
+		let dotaGSIServer = DotaGSIServer(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
+		self.dotaGSIServer = dotaGSIServer
+		gameDetector = GamePresenceDetector(dotaGSI: dotaGSIServer)
+		dotaGSIServer?.start()
+		Task.detached(priority: .utility) {
+			DotaGSIConfigInstaller.install(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
+		}
 
 		clipLibrary.objectWillChange.sink { [weak self] _ in
 			self?.objectWillChange.send()
