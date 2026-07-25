@@ -415,6 +415,11 @@ final class AppState: ObservableObject {
 	}
 
 	@Published private(set) var lowStorageWarningMessage: String?
+	@Published private(set) var isAsleep = false
+
+	var isDisplayOrSystemAsleep: Bool {
+		isAsleep || CGDisplayIsAsleep(CGMainDisplayID()) != 0
+	}
 
 	private let captureManager: CaptureManager
 	let clipLibrary: ClipLibrary
@@ -587,6 +592,9 @@ final class AppState: ObservableObject {
 
 	func startAlwaysRecording(isAutomatic: Bool = true) {
 		guard alwaysRecordEnabled else { return }
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		startCapture(isAutomatic: isAutomatic)
 	}
 
@@ -707,6 +715,9 @@ final class AppState: ObservableObject {
 	}
 
 	private func startCaptureAsync(isAutomatic: Bool = false) async {
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		if !isAutomatic {
 			automaticCaptureRetryTask?.cancel()
 		}
@@ -752,6 +763,9 @@ final class AppState: ObservableObject {
 			updateDiscordActivity(.idle)
 
 			if isAutomatic {
+				if isDisplayOrSystemAsleep {
+					return
+				}
 				AppLog.error(.app, "Automatic capture start failed", error)
 				automaticRestartFailureCount += 1
 				if automaticRestartFailureCount >= Self.maxAutomaticRestartFailuresBeforeFallback {
@@ -800,6 +814,9 @@ final class AppState: ObservableObject {
 
 	private func restartCaptureSilently() {
 		guard isCapturing else { return }
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		Task {
 			await captureManager.stop()
 			do {
@@ -968,9 +985,34 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	func handleSleep() {
+		AppLog.info(.app, "System going to sleep")
+		isAsleep = true
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
+		if isCapturing {
+			Task {
+				await captureManager.stop()
+				isCapturing = false
+				updateDiscordActivity(.idle)
+			}
+		}
+	}
+
+	func handleWake() {
+		AppLog.info(.app, "System waking up")
+		isAsleep = false
+		if alwaysRecordEnabled && !isDisplayOrSystemAsleep {
+			startCapture(isAutomatic: true)
+		}
+	}
+
 	private func handleCaptureInterrupted(_ error: Error) {
 		isCapturing = false
 		updateDiscordActivity(.idle)
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		playErrorFeedback()
 		AppLog.error(.app, "Capture interrupted:", error)
 		scheduleCaptureRetry()
@@ -982,6 +1024,9 @@ final class AppState: ObservableObject {
 			guard let self else { return }
 			try? await Task.sleep(nanoseconds: 2_000_000_000)
 			if Task.isCancelled { return }
+			if self.isDisplayOrSystemAsleep {
+				return
+			}
 			if !self.isCapturing {
 				self.startCapture(isAutomatic: true)
 			}
