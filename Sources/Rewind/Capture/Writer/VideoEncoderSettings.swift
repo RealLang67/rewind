@@ -77,7 +77,8 @@ enum VideoEncoderSettings {
             AVVideoExpectedSourceFrameRateKey: normalizedFrameRate,
             AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
             AVVideoMaxKeyFrameIntervalDurationKey: 1.5,
-            AVVideoAllowFrameReorderingKey: true,
+            AVVideoAllowFrameReorderingKey: false,
+            kVTCompressionPropertyKey_RealTime as String: true,
         ]
 
         if codec == .h264 {

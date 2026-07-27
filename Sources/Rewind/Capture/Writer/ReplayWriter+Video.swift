@@ -149,8 +149,13 @@ extension ReplayWriter {
     func appendVideoSample(
         _ sampleBuffer: CMSampleBuffer, writer: AVAssetWriter, videoInput: AVAssetWriterInput
     ) {
-        let adjustedSample = SampleBufferTiming.adjustedVideo(
-            sampleBuffer, offset: videoPTSOffset, defaultFrameRate: configuredFrameRate)
+        let adjustedSample = SampleBufferTiming.quantizedVideo(
+            sampleBuffer,
+            offset: videoPTSOffset,
+            sessionStartPTS: sessionStartPTS,
+            lastVideoPTS: lastVideoPTS,
+            defaultFrameRate: configuredFrameRate
+        )
         let pts = CMSampleBufferGetPresentationTimeStamp(adjustedSample)
 
         if pts < sessionStartPTS {

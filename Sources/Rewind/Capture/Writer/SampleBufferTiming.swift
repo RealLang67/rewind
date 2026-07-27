@@ -37,6 +37,57 @@ enum SampleBufferTiming {
         return out ?? sampleBuffer
     }
 
+    static func quantizedVideo(
+        _ sampleBuffer: CMSampleBuffer,
+        offset: CMTime,
+        sessionStartPTS: CMTime,
+        lastVideoPTS: CMTime,
+        defaultFrameRate: Int
+    ) -> CMSampleBuffer {
+        let adjusted = adjustedVideo(sampleBuffer, offset: offset, defaultFrameRate: defaultFrameRate)
+        guard sessionStartPTS.isValid, defaultFrameRate > 0 else { return adjusted }
+
+        let rawPTS = CMSampleBufferGetPresentationTimeStamp(adjusted)
+        guard rawPTS.isValid else { return adjusted }
+
+        let fps = Double(defaultFrameRate)
+        let frameDuration = CMTime(value: 1, timescale: Int32(defaultFrameRate))
+
+        let elapsedSeconds = (rawPTS - sessionStartPTS).seconds
+        let frameIndex = max(0, Int64((elapsedSeconds * fps).rounded()))
+        var targetPTS = CMTimeAdd(
+            sessionStartPTS,
+            CMTime(value: frameIndex, timescale: Int32(defaultFrameRate))
+        )
+
+        if lastVideoPTS.isValid {
+            let minNextPTS = CMTimeAdd(lastVideoPTS, frameDuration)
+            if targetPTS <= lastVideoPTS {
+                targetPTS = minNextPTS
+            }
+        }
+
+        var count: CMItemCount = 0
+        CMSampleBufferGetSampleTimingInfoArray(
+            adjusted, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+        guard count > 0 else { return adjusted }
+        var timingInfo = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        CMSampleBufferGetSampleTimingInfoArray(
+            adjusted, entryCount: count, arrayToFill: &timingInfo, entriesNeededOut: &count)
+
+        for i in 0..<count {
+            timingInfo[i].presentationTimeStamp = targetPTS
+            timingInfo[i].duration = frameDuration
+            timingInfo[i].decodeTimeStamp = .invalid
+        }
+
+        var out: CMSampleBuffer?
+        CMSampleBufferCreateCopyWithNewTiming(
+            allocator: nil, sampleBuffer: adjusted, sampleTimingEntryCount: count,
+            sampleTimingArray: &timingInfo, sampleBufferOut: &out)
+        return out ?? adjusted
+    }
+
     /// Rewrites a sample's timing so it starts exactly at `endPTS`, removing the
     /// small gaps/overlaps that otherwise accumulate as drift (e.g. after
     /// sample-rate conversion). No-op when `endPTS` is invalid or already aligned.

@@ -183,7 +183,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		config.width = Int(outputSize.width)
 		config.height = Int(outputSize.height)
 		config.scalesToFit = (config.width != nativeWidth) || (config.height != nativeHeight)
-		config.queueDepth = 5
+		config.queueDepth = 8
 		config.pixelFormat = capturePixelFormat(for: quality)
 		config.colorSpaceName = CGColorSpace.sRGB
 		config.capturesAudio = recordDesktopAudio
@@ -312,7 +312,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		} else {
 			status = nil
 		}
-		if let status, status != .complete {
+		if let status, status != .complete, status != .idle {
 			if !loggedNonCompleteFrame {
 				AppLog.debug(
 					.capture, "ScreenCaptureService: dropping non-complete frame status:",

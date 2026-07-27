@@ -39,9 +39,10 @@ extension ReplayWriter {
                 .writer, "ReplayWriter: video PTS offset applied: \(videoPTSOffset.seconds * 1000) ms")
         } else {
             referencePTS = firstVideoPTS
-            videoPTSOffset = .zero
-            audioPTSOffsetValid = true
         }
+
+        videoPTSOffset = .zero
+        audioPTSOffsetValid = true
 
         sessionStartPTS = referencePTS
         writer.startSession(atSourceTime: referencePTS)
