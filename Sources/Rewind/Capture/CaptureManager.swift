@@ -24,7 +24,7 @@ actor CaptureManager {
     private var isStopping = false
     private var rotationTask: Task<Void, Never>?
     private let segmentDuration: TimeInterval = 10
-    private let maxBufferDuration: TimeInterval = 120
+    private let maxBufferDuration: TimeInterval = 300
     private var currentQuality: QualityPreset = .default
     private var currentFrameRate: Int = CaptureFrameRate.default.framesPerSecond
     private var currentAudioCodec: CaptureAudioCodec = .default

@@ -11,7 +11,7 @@ struct MenuBarView: View {
 		.disabled(recordingButtonDisabled)
 		.applyHotkey(appState.startRecordingHotkey)
 
-		Button("Save Last \(Int(appState.replayDuration))s") {
+		Button("Save Last \(Int(appState.replayDuration).formattedDuration)") {
 			appState.saveReplay()
 		}
 		.disabled(!appState.isCapturing)
@@ -36,7 +36,7 @@ struct MenuBarView: View {
 		Menu("Replay Duration") {
 			ForEach(replayDurationOptions, id: \.self) { duration in
 				Toggle(
-					"\(duration)s",
+					duration.formattedDuration,
 					isOn: Binding(
 						get: {
 							Int(appState.replayDuration) == duration

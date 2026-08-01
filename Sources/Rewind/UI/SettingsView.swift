@@ -169,7 +169,7 @@ private struct CaptureSettingsPane: View {
 						in: replayDurationRange,
 						step: replayDurationStep
 					) {
-						Text("\(Int(appState.replayDuration)) seconds")
+						Text(Int(appState.replayDuration).formattedDuration)
 							.foregroundStyle(.secondary)
 					}
 					.frame(width: 200, alignment: .trailing)

@@ -1,9 +1,9 @@
 import Foundation
 
 struct AppSettings: Codable {
-	static let replayDurationRange: ClosedRange<TimeInterval> = 10 ... 120
+	static let replayDurationRange: ClosedRange<TimeInterval> = 10 ... 300
 	static let replayDurationStep: TimeInterval = 5
-	static let replayDurationQuickOptions = [15, 30, 45, 60, 90, 120]
+	static let replayDurationQuickOptions = [15, 30, 45, 60, 90, 120, 180, 240, 300]
 	static let saveFeedbackVolumeRange: ClosedRange<Double> = 1 ... 100
 	static let saveFeedbackVolumeStep: Double = 1
 
