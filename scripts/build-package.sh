@@ -10,12 +10,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DIST_DIR="${PROJECT_ROOT}/dist"
 VERSION_FILE="${PROJECT_ROOT}/VERSION"
 
-SENTRY_ENV_FILE="${PROJECT_ROOT}/.sentry.env"
-if [[ -f "${SENTRY_ENV_FILE}" ]]; then
-  echo "Loading Sentry config from ${SENTRY_ENV_FILE}"
-  # shellcheck disable=SC1090
-  source "${SENTRY_ENV_FILE}"
-fi
+
 
 VERSION_OVERRIDE=""
 if [[ $# -gt 0 ]]; then
@@ -58,13 +53,6 @@ if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   exit 1
 fi
 
-if [[ -z "${SENTRY_ENVIRONMENT:-}" ]]; then
-  if [[ "${VERSION}" == *-* ]]; then
-    export SENTRY_ENVIRONMENT="beta"
-  else
-    export SENTRY_ENVIRONMENT="production"
-  fi
-fi
 
 VERSION_TAG="v${VERSION}"
 DMG_PATH="${DIST_DIR}/${APP_NAME}-${VERSION_TAG}.dmg"
@@ -143,25 +131,6 @@ if [[ ! -x "${EXECUTABLE_PATH}" ]]; then
   exit 1
 fi
 
-# Upload debug symbols so release crashes symbolicate. Ad-hoc signing keeps the
-# binary's debug ID, so a dSYM built from this executable matches what we ship.
-# Skipped when sentry-cli or the SENTRY_* vars are missing.
-if command -v sentry-cli >/dev/null 2>&1 \
-  && [[ -n "${SENTRY_AUTH_TOKEN:-}" && -n "${SENTRY_ORG:-}" && -n "${SENTRY_PROJECT:-}" ]]; then
-  DSYM_PATH="${STAGING_ROOT}/${APP_NAME}.dSYM"
-  echo "Generating dSYM..."
-  if dsymutil "${EXECUTABLE_PATH}" -o "${DSYM_PATH}"; then
-    echo "Uploading debug symbols to Sentry (${SENTRY_ORG}/${SENTRY_PROJECT})..."
-    sentry-cli debug-files upload \
-      --org "${SENTRY_ORG}" \
-      --project "${SENTRY_PROJECT}" \
-      "${DSYM_PATH}" "${EXECUTABLE_PATH}"
-  else
-    echo "Warning: dsymutil failed; skipping Sentry symbol upload." >&2
-  fi
-else
-  echo "sentry-cli or SENTRY_AUTH_TOKEN/SENTRY_ORG/SENTRY_PROJECT not set; skipping dSYM upload."
-fi
 
 echo "Creating app bundle..."
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
@@ -235,20 +204,6 @@ if [[ -n "${ICON_FILE}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${ICON_FILE}" "${CONTENTS_DIR}/Info.plist"
 fi
 
-# Sentry crash/error reporting reads its DSN from Info.plist. Injected from the
-# SENTRY_DSN environment variable at build time so it isn't committed to source;
-# without it, reporting is a no-op (see CrashReporter.swift).
-if [[ -n "${SENTRY_DSN:-}" ]]; then
-  /usr/libexec/PlistBuddy -c "Add :SentryDSN string ${SENTRY_DSN}" "${CONTENTS_DIR}/Info.plist"
-  echo "Injected SentryDSN into Info.plist"
-else
-  echo "SENTRY_DSN not set; Sentry reporting will be disabled in this build."
-fi
-
-# Bake the Sentry environment into Info.plist so distributed builds tag right.
-SENTRY_ENV="${SENTRY_ENVIRONMENT:-production}"
-/usr/libexec/PlistBuddy -c "Add :SentryEnvironment string ${SENTRY_ENV}" "${CONTENTS_DIR}/Info.plist"
-echo "Set SentryEnvironment to ${SENTRY_ENV}"
 
 SPARKLE_FRAMEWORK_SRC="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 if [[ -d "${SPARKLE_FRAMEWORK_SRC}" ]]; then

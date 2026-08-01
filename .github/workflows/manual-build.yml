@@ -52,23 +52,9 @@ jobs:
           echo "release_tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install sentry-cli
-        shell: bash
-        run: |
-          curl -fsSL https://sentry.io/get-cli/ | bash
-          command -v sentry-cli >/dev/null || {
-            echo "sentry-cli install failed or is not on PATH" >&2
-            exit 1
-          }
-          sentry-cli --version
+
 
       - name: Build package
-        env:
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          # build-package.sh derives SENTRY_ENVIRONMENT from the version.
         run: bash scripts/build-package.sh --version "${{ steps.version_meta.outputs.version }}"
 
       - name: Create zip artifact

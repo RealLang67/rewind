@@ -72,7 +72,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: false,
-			crashReportingEnabled: true,
+
 			betaUpdatesEnabled: false,
 			catboxEnabled: true,
 			litterboxEnabled: false,
@@ -145,7 +145,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: false,
-			crashReportingEnabled: true,
+
 			betaUpdatesEnabled: false,
 			catboxEnabled: false,
 			litterboxEnabled: false,
@@ -245,7 +245,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
-			crashReportingEnabled: AppSettings.default.crashReportingEnabled,
+
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,
@@ -300,7 +300,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
-			crashReportingEnabled: AppSettings.default.crashReportingEnabled,
+
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
 			litterboxEnabled: AppSettings.default.litterboxEnabled,

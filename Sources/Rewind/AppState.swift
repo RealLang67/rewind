@@ -370,14 +370,6 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	@Published var crashReportingEnabled = AppSettings.default.crashReportingEnabled {
-		didSet {
-			guard !isRestoringSettings else { return }
-			guard crashReportingEnabled != oldValue else { return }
-			CrashReporter.setEnabled(crashReportingEnabled)
-			persistSettings()
-		}
-	}
 
 	/// opt-in to the sparkle `beta` channel
 	@Published var betaUpdatesEnabled = AppSettings.default.betaUpdatesEnabled {
@@ -503,7 +495,6 @@ final class AppState: ObservableObject {
 		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
 		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
-		crashReportingEnabled = settings.crashReportingEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
@@ -563,7 +554,6 @@ final class AppState: ObservableObject {
 		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
 		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
-		crashReportingEnabled = settings.crashReportingEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
@@ -576,7 +566,6 @@ final class AppState: ObservableObject {
 
 		persistSettings()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
-		CrashReporter.setEnabled(crashReportingEnabled)
 		updateGlobalHotkeys()
 		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
 		if wasAlwaysRecording && !alwaysRecordEnabled && isCapturing {
@@ -1068,7 +1057,7 @@ final class AppState: ObservableObject {
 				shareGamePresenceEnabled: shareGamePresenceEnabled,
 				shareRobloxExperienceEnabled: shareRobloxExperienceEnabled,
 				fileLoggingEnabled: fileLoggingEnabled,
-				crashReportingEnabled: crashReportingEnabled,
+
 				betaUpdatesEnabled: betaUpdatesEnabled,
 				catboxEnabled: catboxEnabled,
 				litterboxEnabled: litterboxEnabled,

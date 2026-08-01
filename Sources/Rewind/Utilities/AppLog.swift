@@ -18,36 +18,6 @@ enum AppLog {
 
 	private static let lock = NSLock()
 	private nonisolated(unsafe) static var _fileLoggingEnabled: Bool = false
-	private nonisolated(unsafe) static var _errorReporter: (@Sendable (String) -> Void)?
-	private nonisolated(unsafe) static var _breadcrumbReporter: (@Sendable (String, String, String) -> Void)?
-
-	/// Optional sink for error-level logs, wired to the crash reporter at launch.
-	/// Kept as a closure so this logging layer carries no dependency on Sentry.
-	static var errorReporter: (@Sendable (String) -> Void)? {
-		get {
-			lock.lock()
-			defer { lock.unlock() }
-			return _errorReporter
-		}
-		set {
-			lock.lock()
-			_errorReporter = newValue
-			lock.unlock()
-		}
-	}
-
-	static var breadcrumbReporter: (@Sendable (String, String, String) -> Void)? {
-		get {
-			lock.lock()
-			defer { lock.unlock() }
-			return _breadcrumbReporter
-		}
-		set {
-			lock.lock()
-			_breadcrumbReporter = newValue
-			lock.unlock()
-		}
-	}
 
 	/// When on, verbose (`info`/`debug`) logs are also written to the log file.
 	/// Errors are written regardless of this flag.
@@ -325,11 +295,5 @@ enum AppLog {
 		// Errors are always persisted so field failures are debuggable even when
 		// verbose file logging is off; info/debug honor `fileLoggingEnabled`.
 		writeToFile("[\(category.rawValue)] [\(levelString)] \(message)", level: level)
-
-		// every line is a breadcrumb; errors are also captured as their own event
-		breadcrumbReporter?(levelString, category.rawValue, message)
-		if level == .error {
-			errorReporter?("[\(category.rawValue)] \(message)")
-		}
 	}
 }

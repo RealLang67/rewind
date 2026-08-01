@@ -91,10 +91,6 @@ private struct GeneralSettingsPane: View {
 			}
 
 			Section("Diagnostics") {
-				Toggle(isOn: $appState.crashReportingEnabled) {
-					HelpLabel("Share crash & error reports", help: "Sends anonymous crash and error diagnostics to help fix bugs. No screen content or personal data is ever sent.")
-				}
-
 				Toggle(isOn: $appState.fileLoggingEnabled) {
 					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
 				}

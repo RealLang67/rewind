@@ -9,7 +9,6 @@ let package = Package(
 	],
 	dependencies: [
 		.package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.2"),
-		.package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.0.0"),
 		.package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack", from: "3.8.0"),
 	],
 	targets: [
@@ -21,7 +20,6 @@ let package = Package(
 			name: "Rewind",
 			dependencies: [
 				.product(name: "Sparkle", package: "Sparkle"),
-				.product(name: "Sentry", package: "sentry-cocoa"),
 				.product(name: "CocoaLumberjackSwift", package: "CocoaLumberjack"),
 				"RewindObjCSupport",
 			],

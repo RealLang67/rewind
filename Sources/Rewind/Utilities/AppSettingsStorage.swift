@@ -32,7 +32,7 @@ struct AppSettings: Codable {
 	var shareGamePresenceEnabled: Bool
 	var shareRobloxExperienceEnabled: Bool
 	var fileLoggingEnabled: Bool
-	var crashReportingEnabled: Bool
+
 	var betaUpdatesEnabled: Bool
 	var catboxEnabled: Bool
 	var litterboxEnabled: Bool
@@ -68,7 +68,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled: true,
 		shareRobloxExperienceEnabled: true,
 		fileLoggingEnabled: false,
-		crashReportingEnabled: true,
+
 		betaUpdatesEnabled: false,
 		catboxEnabled: false,
 		litterboxEnabled: false,
@@ -105,7 +105,7 @@ struct AppSettings: Codable {
 		case shareGamePresenceEnabled
 		case shareRobloxExperienceEnabled
 		case fileLoggingEnabled
-		case crashReportingEnabled
+
 		case betaUpdatesEnabled
 		case catboxEnabled
 		case litterboxEnabled
@@ -142,7 +142,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled: Bool,
 		shareRobloxExperienceEnabled: Bool,
 		fileLoggingEnabled: Bool,
-		crashReportingEnabled: Bool,
+
 		betaUpdatesEnabled: Bool,
 		catboxEnabled: Bool,
 		litterboxEnabled: Bool,
@@ -177,7 +177,7 @@ struct AppSettings: Codable {
 		self.shareGamePresenceEnabled = shareGamePresenceEnabled
 		self.shareRobloxExperienceEnabled = shareRobloxExperienceEnabled
 		self.fileLoggingEnabled = fileLoggingEnabled
-		self.crashReportingEnabled = crashReportingEnabled
+
 		self.betaUpdatesEnabled = betaUpdatesEnabled
 		self.catboxEnabled = catboxEnabled
 		self.litterboxEnabled = litterboxEnabled
@@ -224,7 +224,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareGamePresenceEnabled) ?? true
 		shareRobloxExperienceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareRobloxExperienceEnabled) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
-		crashReportingEnabled = try container.decodeIfPresent(Bool.self, forKey: .crashReportingEnabled) ?? true
+
 		betaUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .betaUpdatesEnabled) ?? false
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
 		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
@@ -268,7 +268,7 @@ struct AppSettings: Codable {
 		try container.encode(shareGamePresenceEnabled, forKey: .shareGamePresenceEnabled)
 		try container.encode(shareRobloxExperienceEnabled, forKey: .shareRobloxExperienceEnabled)
 		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
-		try container.encode(crashReportingEnabled, forKey: .crashReportingEnabled)
+
 		try container.encode(betaUpdatesEnabled, forKey: .betaUpdatesEnabled)
 		try container.encode(catboxEnabled, forKey: .catboxEnabled)
 		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)

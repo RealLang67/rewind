@@ -10,10 +10,7 @@ struct RewindApp: App {
 		_appState = ObservedObject(initialValue: AppCompositionRoot.shared.appState)
 		_updaterController = ObservedObject(initialValue: AppCompositionRoot.shared.updaterController)
 		AppLog.startFileLogging()
-		CrashReporter.start(enabled: AppCompositionRoot.shared.appState.crashReportingEnabled)
-		if !CrashReporter.isConfigured {
-			AppLog.installFallbackCrashHandlers()
-		}
+		AppLog.installFallbackCrashHandlers()
 	}
 
 	var body: some Scene {
