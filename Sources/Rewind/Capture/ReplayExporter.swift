@@ -22,8 +22,6 @@ struct ReplayExporter {
             let asset = AVURLAsset(url: segment.url)
             _ = try await asset.load(.tracks)
             let assetDuration = try await asset.load(.duration)
-            var videoDuration = assetDuration
-            var audioDuration = assetDuration
 
             let sourceVideo = try await asset.loadTracks(withMediaType: .video).first
             let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
@@ -38,39 +36,42 @@ struct ReplayExporter {
                 }
             }
 
+            var videoTimeRange: CMTimeRange? = nil
             if let sourceVideo, let videoTrack {
-                videoDuration = try await sourceVideo.load(.timeRange).duration
-                if !appliedTransform {
-                    let transform = try await sourceVideo.load(.preferredTransform)
-                    videoTrack.preferredTransform = transform
-                    appliedTransform = true
+                let tr = try await sourceVideo.load(.timeRange)
+                if tr.duration.isValid && tr.duration > .zero {
+                    videoTimeRange = tr
+                    try videoTrack.insertTimeRange(tr, of: sourceVideo, at: cursor)
+                    if !appliedTransform {
+                        let transform = try await sourceVideo.load(.preferredTransform)
+                        videoTrack.preferredTransform = transform
+                        appliedTransform = true
+                    }
                 }
             }
-            if let firstSourceAudio = sourceAudioTracks.first {
-                audioDuration = try await firstSourceAudio.load(.timeRange).duration
-            }
-            let minDuration = CMTimeMinimum(videoDuration, audioDuration)
-            let segmentDuration =
-                minDuration.isValid && minDuration > .zero ? minDuration : assetDuration
-            let timeRange = CMTimeRange(start: .zero, duration: segmentDuration)
-            if let sourceVideo, let videoTrack {
-                try videoTrack.insertTimeRange(timeRange, of: sourceVideo, at: cursor)
-            }
+
             for (index, sourceAudio) in sourceAudioTracks.enumerated() {
                 if index < audioTracks.count {
-                    try audioTracks[index].insertTimeRange(timeRange, of: sourceAudio, at: cursor)
+                    let audioTR = try await sourceAudio.load(.timeRange)
+                    let insertTR: CMTimeRange
+                    if let videoTimeRange {
+                        let audioStart = max(audioTR.start, videoTimeRange.start)
+                        let audioEnd = min(audioTR.end, videoTimeRange.end)
+                        let dur = audioEnd > audioStart ? CMTimeSubtract(audioEnd, audioStart) : videoTimeRange.duration
+                        insertTR = CMTimeRange(start: audioStart, duration: dur)
+                    } else {
+                        insertTR = audioTR
+                    }
+                    if insertTR.duration.isValid && insertTR.duration > .zero {
+                        try audioTracks[index].insertTimeRange(insertTR, of: sourceAudio, at: cursor)
+                    }
                 }
             }
-            if assetDuration.isValid, segmentDuration.isValid {
-                let delta = CMTimeSubtract(assetDuration, segmentDuration)
-                let mismatchThreshold = CMTime(seconds: 0.02, preferredTimescale: 1_000)
-                if delta > mismatchThreshold {
-                    AppLog.debug(
-                        .capture, "Export: segment duration mismatch. asset:", assetDuration.seconds,
-                        "video:", videoDuration.seconds, "audio:", audioDuration.seconds)
-                }
+
+            let stepDuration = videoTimeRange?.duration ?? assetDuration
+            if stepDuration.isValid && stepDuration > .zero {
+                cursor = cursor + stepDuration
             }
-            cursor = cursor + segmentDuration
         }
 
         let totalSeconds = cursor.seconds

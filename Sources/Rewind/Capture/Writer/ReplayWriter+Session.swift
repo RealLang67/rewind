@@ -20,26 +20,7 @@ extension ReplayWriter {
             return
         }
 
-        let referencePTS: CMTime
-        if requiresAudioForSession {
-            var retainedAudioPTS = firstAudioPTS
-            let minCandidatePTS = CMTimeSubtract(firstVideoPTS, Constants.audioSyncTolerance)
-            for sample in pendingAudio.samples {
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                if pts >= minCandidatePTS {
-                    retainedAudioPTS = pts
-                    break
-                }
-            }
-            referencePTS = retainedAudioPTS
-            videoPTSOffset =
-                retainedAudioPTS.isValid ? CMTimeSubtract(retainedAudioPTS, firstVideoPTS) : .zero
-            audioPTSOffsetValid = true
-            AppLog.debug(
-                .writer, "ReplayWriter: video PTS offset applied: \(videoPTSOffset.seconds * 1000) ms")
-        } else {
-            referencePTS = firstVideoPTS
-        }
+        let referencePTS = firstVideoPTS
 
         videoPTSOffset = .zero
         audioPTSOffsetValid = true
