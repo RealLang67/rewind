@@ -337,7 +337,7 @@ private struct HotkeysSettingsPane: View {
 			} header: {
 				Text("Shortcuts")
 			} footer: {
-				Text("Press Escape to cancel recording. Shortcuts must include at least one modifier key.")
+				Text("Press Escape to cancel recording.")
 			}
 			.disabled(settingsLocked)
 		}
@@ -676,9 +676,6 @@ private struct HotkeyRecorderRow: View {
 			}
 
 			let relevantFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
-			if relevantFlags.isEmpty {
-				return nil
-			}
 
 			hotkey = Hotkey(keyCode: UInt32(event.keyCode), modifiers: relevantFlags.carbonModifiers)
 			stopRecording()
