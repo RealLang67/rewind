@@ -10,10 +10,6 @@ extension ReplayWriter {
             writer.status == .unknown
         else { return }
         guard firstVideoPTS.isValid else { return }
-        if requiresAudioForSession && !firstAudioPTS.isValid {
-            return
-        }
-
         if !writer.startWriting() {
             AppLog.error(.writer, "ReplayWriter.startWriting failed", error: writer.error)
             acceptsMediaData = false
@@ -143,7 +139,13 @@ extension ReplayWriter {
             group.addTask {
                 try await Task.sleep(
                     nanoseconds: UInt64(Constants.finishWritingTimeout * 1_000_000_000))
-                throw CaptureError.exportFailed
+                AppLog.error(
+                    .writer,
+                    "ReplayWriter.finishWriting timed out after",
+                    Constants.finishWritingTimeout,
+                    "seconds"
+                )
+                throw CaptureError.writerFinishTimedOut
             }
             guard let result = try await group.next() else {
                 throw CaptureError.writerUnavailable

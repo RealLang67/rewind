@@ -220,8 +220,19 @@ actor CaptureManager {
             throw CaptureError.writerUnavailable
         }
 
-        // atomically switch the writer reference (callbacks will pick up new writer)
         let oldWriter = activeWriter
+
+        #if arch(x86_64)
+            currentWriter = nil
+            let sourceURL = try await oldWriter.finishWriting()
+
+            activeWriter = newWriter
+            standbyWriter = nil
+            currentWriter = newWriter
+            prepareStandbyWriter()
+            return sourceURL
+        #else
+        // callbacks will pick up new writer
         activeWriter = newWriter
         standbyWriter = nil
 
@@ -236,6 +247,7 @@ actor CaptureManager {
         let sourceURL = try await oldWriter.finishWriting()
         prepareStandbyWriter()
         return sourceURL
+        #endif
     }
 
     private func makeSegmentURL() -> URL {

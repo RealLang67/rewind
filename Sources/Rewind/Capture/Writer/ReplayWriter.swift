@@ -55,7 +55,6 @@ final class ReplayWriter: @unchecked Sendable {
     var configuredFrameRate = Constants.defaultFrameRate
     var configuredRecordMicrophone = false
     var includeAudio = false
-    var requiresAudioForSession = false
 
     // - Session ---
 
@@ -259,7 +258,6 @@ final class ReplayWriter: @unchecked Sendable {
         self.configuredFrameRate = frameRate
         self.configuredRecordMicrophone = recordMicrophone
         self.includeAudio = includeAudio
-        self.requiresAudioForSession = includeAudio && audioInput != nil
 
         resetRuntimeState(resetReconfigureCount: true)
         micConverter = micAudio != nil ? MicrophoneConverter(audioSettings: audioSettings) : nil
@@ -311,7 +309,6 @@ final class ReplayWriter: @unchecked Sendable {
         configuredQuality = .default
         configuredFrameRate = Constants.defaultFrameRate
         includeAudio = false
-        requiresAudioForSession = false
         resetRuntimeState(resetReconfigureCount: false)
     }
 

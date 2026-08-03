@@ -220,6 +220,30 @@ final class MicrophoneCaptureTests: XCTestCase {
 		XCTAssertEqual(audioTrackCount, 1, "Mic track should not be written when disabled")
 	}
 
+	func testSilentDesktopAudioDoesNotPreventVideoSessionFromStarting() async throws {
+		let directory = try makeTempDirectory()
+		defer { try? FileManager.default.removeItem(at: directory) }
+
+		let writer = ReplayWriter(queue: DispatchQueue(label: "MicrophoneCaptureTests.silentDesktopAudio"))
+		try writer.configure(
+			outputURL: directory.appendingPathComponent("silent-desktop-audio.mov"),
+			videoSize: CGSize(width: 32, height: 32),
+			includeAudio: true,
+			audioSettings: audioSettings,
+			recordMicrophone: false
+		)
+
+		let video = try XCTUnwrap(makeVideoSampleBuffer(pts: .zero))
+		writer.appendVideo(video)
+
+		try await Task.sleep(nanoseconds: 200_000_000)
+
+		let outputURL = try await writer.finishWriting()
+		let asset = AVURLAsset(url: outputURL)
+		let videoTracks = try await asset.loadTracks(withMediaType: .video)
+		XCTAssertEqual(videoTracks.count, 1)
+	}
+
 	func testAppendMicBeforeConfigureDoesNotCrashOrAffectFinishWriting() async {
 		let writer = ReplayWriter(queue: DispatchQueue(label: "MicrophoneCaptureTests.unconfigured"))
 		guard let micAudio = makeAudioSampleBuffer(pts: .zero) else {
