@@ -10,8 +10,14 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DIST_DIR="${PROJECT_ROOT}/dist"
 VERSION_FILE="${PROJECT_ROOT}/VERSION"
 
+POSTHOG_ENV_FILE="${PROJECT_ROOT}/.posthog.env"
+if [[ -f "${POSTHOG_ENV_FILE}" ]]; then
+  echo "Loading PostHog config from ${POSTHOG_ENV_FILE}"
+  # shellcheck disable=SC1090
+  source "${POSTHOG_ENV_FILE}"
+fi
 
-
+POSTHOG_HOST="${POSTHOG_HOST:-https://eu.i.posthog.com}"
 VERSION_OVERRIDE=""
 if [[ $# -gt 0 ]]; then
   case "$1" in
@@ -202,6 +208,14 @@ EOF
 
 if [[ -n "${ICON_FILE}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${ICON_FILE}" "${CONTENTS_DIR}/Info.plist"
+fi
+
+if [[ -n "${POSTHOG_PROJECT_TOKEN:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :PostHogProjectToken string ${POSTHOG_PROJECT_TOKEN}" "${CONTENTS_DIR}/Info.plist"
+  /usr/libexec/PlistBuddy -c "Add :PostHogHost string ${POSTHOG_HOST}" "${CONTENTS_DIR}/Info.plist"
+  echo "Injected privacy-preserving PostHog configuration into Info.plist"
+else
+  echo "POSTHOG_PROJECT_TOKEN not set; analytics will be disabled in this build."
 fi
 
 

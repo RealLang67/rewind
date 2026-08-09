@@ -40,6 +40,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(settings.analyticsEnabled, AppSettings.default.analyticsEnabled)
 		XCTAssertEqual(settings.catboxEnabled, AppSettings.default.catboxEnabled)
 		XCTAssertEqual(settings.litterboxEnabled, AppSettings.default.litterboxEnabled)
 		XCTAssertEqual(settings.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
@@ -72,6 +73,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: false,
+			analyticsEnabled: false,
 
 			betaUpdatesEnabled: false,
 			catboxEnabled: true,
@@ -109,6 +111,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, expected.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
 		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, expected.analyticsEnabled)
 		XCTAssertEqual(loaded.catboxEnabled, expected.catboxEnabled)
 		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
@@ -145,6 +148,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: false,
+			analyticsEnabled: false,
 
 			betaUpdatesEnabled: false,
 			catboxEnabled: false,
@@ -184,6 +188,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, AppSettings.default.analyticsEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
@@ -215,6 +220,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, AppSettings.default.analyticsEnabled)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
@@ -245,6 +251,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			analyticsEnabled: AppSettings.default.analyticsEnabled,
 
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,
@@ -300,6 +307,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
 			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
 			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			analyticsEnabled: AppSettings.default.analyticsEnabled,
 
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
 			catboxEnabled: AppSettings.default.catboxEnabled,

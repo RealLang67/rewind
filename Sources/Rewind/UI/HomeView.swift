@@ -1,5 +1,5 @@
-import SwiftUI
 import AVKit
+import SwiftUI
 
 struct HomeView: View {
 	@ObservedObject var appState: AppState
@@ -40,8 +40,13 @@ struct HomeView: View {
 						ForEach(filteredClips) { clip in
 							Button {
 								selectedClip = clip
+								appState.trackClipAction(action: "open")
 							} label: {
 								ClipCard(clip: clip, onFavorite: {
+									appState.trackClipAction(
+										action: "favorite",
+										result: clip.isFavorite ? "disabled" : "enabled"
+									)
 									appState.clipLibrary.toggleFavorite(clip: clip)
 								}, onDelete: {
 									if selectedClip?.id == clip.id {
@@ -49,6 +54,7 @@ struct HomeView: View {
 									}
 									Task { await appState.clipLibrary.deleteClip(clip) }
 									appState.clipWasDeleted(clip)
+									appState.trackClipAction(action: "delete", result: "requested")
 								})
 								.overlay(
 									RoundedRectangle(cornerRadius: 8)
@@ -134,7 +140,7 @@ struct ClipCard: View {
 				}
 				.padding(8)
 			}
-			.aspectRatio(16/9, contentMode: .fit)
+			.aspectRatio(16 / 9, contentMode: .fit)
 			.cornerRadius(8)
 
 			Text(clip.createdAt, style: .date)
@@ -213,7 +219,7 @@ struct TrimEditorView: View {
 								uploadClip(clip.url, provider: "catbox")
 							}
 						}
-						
+
 						if appState.litterboxEnabled {
 							Menu("Upload to Litterbox") {
 								Picker("Expiration", selection: $litterboxExpiration) {
@@ -227,7 +233,7 @@ struct TrimEditorView: View {
 								}
 							}
 						}
-						
+
 					} label: {
 						Label("Share", systemImage: "square.and.arrow.up")
 					}
@@ -289,38 +295,42 @@ struct TrimEditorView: View {
 	private func saveTrimmedClip() {
 		guard let currentItem = playerView.player?.currentItem else { return }
 		let asset = currentItem.asset
-		
+
 		var start = currentItem.reversePlaybackEndTime
 		var end = currentItem.forwardPlaybackEndTime
-		
+
 		isTrimming = true
 		Task {
 			if !start.isValid { start = .zero }
-			if !end.isValid { 
+			if !end.isValid {
 				end = (try? await asset.load(.duration)) ?? .zero
 			}
-			
+
 			let timeRange = CMTimeRange(start: start, end: end)
-			
-			guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else { 
+
+			guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
 				isTrimming = false
-				return 
+				return
 			}
-			
+
 			let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(clip.url.pathExtension)
-			
+
 			exportSession.outputURL = tempURL
 			exportSession.outputFileType = clip.url.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
 			exportSession.timeRange = timeRange
-			
+
 			await exportSession.export()
 			if exportSession.status == .completed {
 				do {
 					try? FileManager.default.removeItem(at: clip.url)
 					try FileManager.default.moveItem(at: tempURL, to: clip.url)
+					appState.trackClipAction(action: "trim")
 				} catch {
 					print("Error saving trimmed clip: \(error)")
+					appState.trackClipAction(action: "trim", result: "failed")
 				}
+			} else {
+				appState.trackClipAction(action: "trim", result: "failed")
 			}
 			isTrimming = false
 		}
@@ -329,12 +339,14 @@ struct TrimEditorView: View {
 	private func copyClipToPasteboard(_ url: URL) {
 		NSPasteboard.general.clearContents()
 		NSPasteboard.general.writeObjects([url as NSURL])
+		appState.trackClipAction(action: "copy")
 	}
 
-	private func showUploadFailure() {
+	private func showUploadFailure(provider: String) {
 		isUploading = false
 		uploadSuccess = false
 		uploadFailed = true
+		appState.trackClipAction(action: "upload", result: "failed", provider: provider)
 		Task {
 			try? await Task.sleep(nanoseconds: 5_000_000_000)
 			uploadFailed = false
@@ -348,12 +360,13 @@ struct TrimEditorView: View {
 		uploadFailed = false
 		showProgressPopover = true
 		uploadProgress = 0.0
-		
+		appState.trackClipAction(action: "upload", result: "started", provider: provider)
+
 		Task {
-			let apiURL = provider == "catbox" 
+			let apiURL = provider == "catbox"
 				? URL(string: "https://catbox.moe/user/api.php")!
 				: URL(string: "https://litterbox.catbox.moe/resources/internals/api.php")!
-				
+
 			var request = URLRequest(url: apiURL)
 			request.httpMethod = "POST"
 			let boundary = UUID().uuidString
@@ -362,23 +375,24 @@ struct TrimEditorView: View {
 			var data = Data()
 			data.append("--\(boundary)\r\n".data(using: .utf8)!)
 			data.append("Content-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n".data(using: .utf8)!)
-			
+
 			if provider == "litterbox" {
 				data.append("--\(boundary)\r\n".data(using: .utf8)!)
 				data.append("Content-Disposition: form-data; name=\"time\"\r\n\r\n\(litterboxExpiration)\r\n".data(using: .utf8)!)
 			}
-			
+
 			let isMP4 = url.pathExtension.lowercased() == "mp4"
 			let filename = isMP4 ? "clip.mp4" : "clip.mov"
 			let contentType = isMP4 ? "video/mp4" : "video/quicktime"
-			
+
 			data.append("--\(boundary)\r\n".data(using: .utf8)!)
 			data.append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
 			data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
-			
+
 			guard let fileData = try? Data(contentsOf: url) else {
 				self.isUploading = false
 				self.showProgressPopover = false
+				self.appState.trackClipAction(action: "upload", result: "failed", provider: provider)
 				return
 			}
 			data.append(fileData)
@@ -388,15 +402,16 @@ struct TrimEditorView: View {
 				DispatchQueue.main.async {
 					self.uploadProgressObs?.invalidate()
 					self.uploadProgressObs = nil
-					
+
 					if let error = error as NSError? {
 						if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
 							// user cancelled
 							self.isUploading = false
 							self.showProgressPopover = false
+							self.appState.trackClipAction(action: "upload", result: "cancelled", provider: provider)
 						} else {
 							print("Upload error: \(error)")
-							self.showUploadFailure()
+							self.showUploadFailure(provider: provider)
 						}
 						return
 					}
@@ -406,10 +421,11 @@ struct TrimEditorView: View {
 						.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 					let uploadedURL = body.hasPrefix("https://") ? URL(string: body) : nil
 
-					if (200..<300).contains(status), let uploadedURL {
+					if (200 ..< 300).contains(status), let uploadedURL {
 						NSPasteboard.general.clearContents()
 						NSPasteboard.general.setString(uploadedURL.absoluteString, forType: .string)
 						self.uploadSuccess = true
+						self.appState.trackClipAction(action: "upload", provider: provider)
 						Task {
 							try? await Task.sleep(nanoseconds: 2_500_000_000)
 							self.uploadSuccess = false
@@ -418,11 +434,11 @@ struct TrimEditorView: View {
 						}
 					} else {
 						print("Upload failed. status: \(status), body: \(body)")
-						self.showUploadFailure()
+						self.showUploadFailure(provider: provider)
 					}
 				}
 			}
-			
+
 			DispatchQueue.main.async {
 				self.uploadTask = task
 				self.uploadProgressObs = task.progress.observe(\.fractionCompleted) { progress, _ in
@@ -439,9 +455,9 @@ struct TrimEditorView: View {
 struct NativeVideoPlayerWrapper: NSViewRepresentable {
 	let playerView: AVPlayerView
 
-	func makeNSView(context: Context) -> AVPlayerView {
+	func makeNSView(context _: Context) -> AVPlayerView {
 		playerView
 	}
 
-	func updateNSView(_ nsView: AVPlayerView, context: Context) {}
+	func updateNSView(_: AVPlayerView, context _: Context) {}
 }

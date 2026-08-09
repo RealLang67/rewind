@@ -55,6 +55,9 @@ jobs:
 
 
       - name: Build package
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
         run: bash scripts/build-package.sh --version "${{ steps.version_meta.outputs.version }}"
 
       - name: Create zip artifact
@@ -176,4 +179,3 @@ jobs:
             '{embeds: [{title: $title, description: $desc, url: $url, color: 5814783}]}')
             
           curl -s -X POST -H "Content-Type: application/json" -d "$JSON_PAYLOAD" "${DISCORD_WEBHOOK}"
-

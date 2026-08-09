@@ -5,4 +5,5 @@ dist
 docs
 .swiftpm
 private_key.txt
+.posthog.env
 CLAUDE.md

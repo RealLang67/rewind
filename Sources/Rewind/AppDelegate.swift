@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func applicationDidFinishLaunching(_: Notification) {
 		compositionRoot.lifecycleController.start()
+		compositionRoot.appState.trackAppOpened()
 	}
 
 	func applicationWillTerminate(_: Notification) {

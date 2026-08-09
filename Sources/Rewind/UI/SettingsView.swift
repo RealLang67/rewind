@@ -90,6 +90,15 @@ private struct GeneralSettingsPane: View {
 				}
 			}
 
+			Section("Privacy") {
+				Toggle(isOn: $appState.analyticsEnabled) {
+					HelpLabel(
+						"Share anonymous analytics",
+						help: "Sends anonymous app-open, recording, and replay-save events to help improve Rewind. Never includes recordings, screenshots, file paths, game names, or error details."
+					)
+				}
+			}
+
 			Section("Diagnostics") {
 				Toggle(isOn: $appState.fileLoggingEnabled) {
 					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")

@@ -32,6 +32,7 @@ struct AppSettings: Codable {
 	var shareGamePresenceEnabled: Bool
 	var shareRobloxExperienceEnabled: Bool
 	var fileLoggingEnabled: Bool
+	var analyticsEnabled: Bool
 
 	var betaUpdatesEnabled: Bool
 	var catboxEnabled: Bool
@@ -68,6 +69,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled: true,
 		shareRobloxExperienceEnabled: true,
 		fileLoggingEnabled: false,
+		analyticsEnabled: true,
 
 		betaUpdatesEnabled: false,
 		catboxEnabled: false,
@@ -105,6 +107,7 @@ struct AppSettings: Codable {
 		case shareGamePresenceEnabled
 		case shareRobloxExperienceEnabled
 		case fileLoggingEnabled
+		case analyticsEnabled
 
 		case betaUpdatesEnabled
 		case catboxEnabled
@@ -142,6 +145,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled: Bool,
 		shareRobloxExperienceEnabled: Bool,
 		fileLoggingEnabled: Bool,
+		analyticsEnabled: Bool,
 
 		betaUpdatesEnabled: Bool,
 		catboxEnabled: Bool,
@@ -177,6 +181,7 @@ struct AppSettings: Codable {
 		self.shareGamePresenceEnabled = shareGamePresenceEnabled
 		self.shareRobloxExperienceEnabled = shareRobloxExperienceEnabled
 		self.fileLoggingEnabled = fileLoggingEnabled
+		self.analyticsEnabled = analyticsEnabled
 
 		self.betaUpdatesEnabled = betaUpdatesEnabled
 		self.catboxEnabled = catboxEnabled
@@ -224,6 +229,7 @@ struct AppSettings: Codable {
 		shareGamePresenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareGamePresenceEnabled) ?? true
 		shareRobloxExperienceEnabled = try container.decodeIfPresent(Bool.self, forKey: .shareRobloxExperienceEnabled) ?? true
 		fileLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .fileLoggingEnabled) ?? false
+		analyticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .analyticsEnabled) ?? true
 
 		betaUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .betaUpdatesEnabled) ?? false
 		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
@@ -268,6 +274,7 @@ struct AppSettings: Codable {
 		try container.encode(shareGamePresenceEnabled, forKey: .shareGamePresenceEnabled)
 		try container.encode(shareRobloxExperienceEnabled, forKey: .shareRobloxExperienceEnabled)
 		try container.encode(fileLoggingEnabled, forKey: .fileLoggingEnabled)
+		try container.encode(analyticsEnabled, forKey: .analyticsEnabled)
 
 		try container.encode(betaUpdatesEnabled, forKey: .betaUpdatesEnabled)
 		try container.encode(catboxEnabled, forKey: .catboxEnabled)

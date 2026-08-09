@@ -1,8 +1,8 @@
 import AppKit
 @preconcurrency import AVFoundation
+import Combine
 @preconcurrency import ScreenCaptureKit
 import SwiftUI
-import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -50,6 +50,7 @@ final class AppState: ObservableObject {
 			}
 		}
 	}
+
 	@Published private(set) var permissionState = PermissionState()
 	@Published private(set) var availableResolutions: [CaptureResolution] = []
 	@Published private(set) var isLoadingResolutions = false
@@ -65,7 +66,7 @@ final class AppState: ObservableObject {
 	}
 
 	@Published private(set) var availableMicrophones: [MicrophoneDevice] = []
-	// nil = system default input
+	/// nil = system default input
 	@Published var selectedMicrophoneDeviceID: String? {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -134,7 +135,7 @@ final class AppState: ObservableObject {
 			guard alwaysRecordEnabled != oldValue else { return }
 			persistSettings()
 			if alwaysRecordEnabled {
-				startCapture()
+				startCapture(reason: .alwaysRecord)
 			}
 		}
 	}
@@ -319,7 +320,7 @@ final class AppState: ObservableObject {
 			guard !isRestoringSettings else { return }
 			guard recordMicrophoneEnabled != oldValue else { return }
 
-			if recordMicrophoneEnabled && !Self.supportsMicrophoneCapture {
+			if recordMicrophoneEnabled, !Self.supportsMicrophoneCapture {
 				recordMicrophoneEnabled = false
 				return
 			}
@@ -352,7 +353,7 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	// only affects the next manual start's picker prompt, so no capture restart here
+	/// only affects the next manual start's picker prompt, so no capture restart here
 	@Published var captureTargetPromptEnabled = AppSettings.default.captureTargetPromptEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -370,6 +371,15 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var analyticsEnabled = AppSettings.default.analyticsEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard analyticsEnabled != oldValue else { return }
+			persistSettings()
+			let enabled = analyticsEnabled
+			Task { await analytics.setEnabled(enabled) }
+		}
+	}
 
 	/// opt-in to the sparkle `beta` channel
 	@Published var betaUpdatesEnabled = AppSettings.default.betaUpdatesEnabled {
@@ -416,6 +426,7 @@ final class AppState: ObservableObject {
 	private let captureManager: CaptureManager
 	let clipLibrary: ClipLibrary
 	private let discordRPCClient: DiscordRPCClient
+	private let analytics: any AnalyticsTracking
 	private let hotkeyManager: GlobalHotkeyManager
 	private let soundFeedback = SoundFeedbackController()
 	private var storageMonitor: StorageMonitor!
@@ -447,11 +458,13 @@ final class AppState: ObservableObject {
 		captureManager: CaptureManager = CaptureManager(),
 		clipLibrary: ClipLibrary = ClipLibrary(),
 		discordRPCClient: DiscordRPCClient = DiscordRPCClient(),
+		analytics: any AnalyticsTracking = NoopAnalytics(),
 		hotkeyManager: GlobalHotkeyManager = .shared
 	) {
 		self.captureManager = captureManager
 		self.clipLibrary = clipLibrary
 		self.discordRPCClient = discordRPCClient
+		self.analytics = analytics
 		self.hotkeyManager = hotkeyManager
 
 		let dotaGSIAuthToken = UUID().uuidString
@@ -495,6 +508,7 @@ final class AppState: ObservableObject {
 		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
 		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
+		analyticsEnabled = settings.analyticsEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
@@ -513,7 +527,12 @@ final class AppState: ObservableObject {
 		}
 		Task { await loadAvailableResolutions() }
 		storageMonitor = StorageMonitor { [weak self] message in
-			self?.lowStorageWarningMessage = message
+			guard let self else { return }
+			let warningWasVisible = lowStorageWarningMessage != nil
+			lowStorageWarningMessage = message
+			if !warningWasVisible, message != nil {
+				Task { await analytics.lowStorageWarningShown() }
+			}
 		}
 		storageMonitor.start()
 		Task {
@@ -554,6 +573,7 @@ final class AppState: ObservableObject {
 		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
 		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
+		analyticsEnabled = settings.analyticsEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
 		catboxEnabled = settings.catboxEnabled
 		litterboxEnabled = settings.litterboxEnabled
@@ -566,9 +586,11 @@ final class AppState: ObservableObject {
 
 		persistSettings()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
+		let shouldEnableAnalytics = analyticsEnabled
+		Task { await analytics.setEnabled(shouldEnableAnalytics) }
 		updateGlobalHotkeys()
 		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
-		if wasAlwaysRecording && !alwaysRecordEnabled && isCapturing {
+		if wasAlwaysRecording, !alwaysRecordEnabled, isCapturing {
 			Task { await stopCaptureAsync() }
 		} else {
 			restartCaptureSilently()
@@ -576,7 +598,7 @@ final class AppState: ObservableObject {
 	}
 
 	func startCapture(isAutomatic: Bool = false) {
-		Task { await startCaptureAsync(isAutomatic: isAutomatic) }
+		startCapture(reason: isAutomatic ? .retry : .manual)
 	}
 
 	func startAlwaysRecording(isAutomatic: Bool = true) {
@@ -584,7 +606,7 @@ final class AppState: ObservableObject {
 		if isDisplayOrSystemAsleep {
 			return
 		}
-		startCapture(isAutomatic: isAutomatic)
+		startCapture(reason: isAutomatic ? .alwaysRecord : .manual)
 	}
 
 	func stopCapture() {
@@ -594,6 +616,15 @@ final class AppState: ObservableObject {
 
 	func saveReplay() {
 		Task { await saveReplayAsync() }
+	}
+
+	func trackAppOpened() {
+		let settings = analyticsSettingsSnapshot
+		Task { await analytics.appOpened(settings: settings) }
+	}
+
+	func trackClipAction(action: String, result: String = "success", provider: String? = nil) {
+		Task { await analytics.clipAction(action: action, result: result, provider: provider) }
 	}
 
 	func toggleCapture() {
@@ -641,13 +672,13 @@ final class AppState: ObservableObject {
 		Task { await loadAvailableResolutions() }
 	}
 
-	// enumeration is instant, so this stays synchronous unlike resolutions.
-	// a selected-but-now-disconnected mic reconciles back to the system default.
+	/// enumeration is instant, so this stays synchronous unlike resolutions.
+	/// a selected-but-now-disconnected mic reconciles back to the system default.
 	func refreshMicrophones() {
 		let devices = MicrophoneDeviceProvider.availableDevices()
 		availableMicrophones = devices
 		if let selected = selectedMicrophoneDeviceID,
-			!devices.contains(where: { $0.id == selected })
+		   !devices.contains(where: { $0.id == selected })
 		{
 			selectedMicrophoneDeviceID = nil
 		}
@@ -703,7 +734,12 @@ final class AppState: ObservableObject {
 		AppLog.error(.app, "Resolutions did not load after multiple tries")
 	}
 
-	private func startCaptureAsync(isAutomatic: Bool = false) async {
+	private func startCapture(reason: AnalyticsCaptureStartReason) {
+		Task { await startCaptureAsync(reason: reason) }
+	}
+
+	private func startCaptureAsync(reason: AnalyticsCaptureStartReason) async {
+		let isAutomatic = reason != .manual
 		if isDisplayOrSystemAsleep {
 			return
 		}
@@ -743,6 +779,8 @@ final class AppState: ObservableObject {
 				microphoneDeviceID: selectedMicrophoneDeviceID
 			)
 			isCapturing = true
+			let settings = analyticsSettingsSnapshot
+			Task { await analytics.captureSessionStarted(reason: reason, settings: settings) }
 			automaticRestartFailureCount = 0
 			updateDiscordActivity(.recording(game: nil, joinURL: nil, artURL: nil))
 			playRecordingStartFeedback()
@@ -750,6 +788,14 @@ final class AppState: ObservableObject {
 		} catch {
 			isCapturing = false
 			updateDiscordActivity(.idle)
+			let category = analyticsErrorCategory(error)
+			Task {
+				await analytics.captureStartFailed(
+					reason: reason,
+					category: category,
+					retrying: isAutomatic
+				)
+			}
 
 			if isAutomatic {
 				if isDisplayOrSystemAsleep {
@@ -783,10 +829,11 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	private func stopCaptureAsync() async {
+	private func stopCaptureAsync(reason: AnalyticsCaptureEndReason = .manual) async {
 		automaticCaptureRetryTask?.cancel()
 		await captureManager.stop()
 		isCapturing = false
+		Task { await analytics.captureSessionEnded(reason: reason) }
 		updateDiscordActivity(.idle)
 		playRecordingEndFeedback()
 	}
@@ -837,6 +884,15 @@ final class AppState: ObservableObject {
 	}
 
 	private func saveReplayAsync() async {
+		let requestedDuration = replayDuration
+		let requestedContainerID = selectedContainer.id
+		let startedAt = Date()
+		Task {
+			await analytics.replaySaveRequested(
+				duration: requestedDuration,
+				containerID: requestedContainerID
+			)
+		}
 		do {
 			let url = try await captureManager.saveReplay(
 				seconds: replayDuration, container: selectedContainer
@@ -844,10 +900,20 @@ final class AppState: ObservableObject {
 			let clipDuration = try await resolvedClipDuration(for: url)
 			let clip = try await clipLibrary.addClip(url: url, duration: clipDuration)
 			lastClip = clip
+			let processingMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+			Task {
+				await analytics.replaySaved(
+					duration: requestedDuration,
+					containerID: requestedContainerID,
+					processingMilliseconds: processingMilliseconds
+				)
+			}
 			playReplaySavedFeedback()
 			refreshStorageWarning()
 		} catch {
 			AppLog.error(.app, "Save replay failed:", error)
+			let category = analyticsErrorCategory(error)
+			Task { await analytics.replaySaveFailed(category: category) }
 			playErrorFeedback()
 		}
 	}
@@ -983,6 +1049,7 @@ final class AppState: ObservableObject {
 			Task {
 				await captureManager.stop()
 				isCapturing = false
+				await analytics.captureSessionEnded(reason: .sleep)
 				updateDiscordActivity(.idle)
 			}
 		}
@@ -991,8 +1058,8 @@ final class AppState: ObservableObject {
 	func handleWake() {
 		AppLog.info(.app, "System waking up")
 		isAsleep = false
-		if alwaysRecordEnabled && !isDisplayOrSystemAsleep {
-			startCapture(isAutomatic: true)
+		if alwaysRecordEnabled, !isDisplayOrSystemAsleep {
+			startCapture(reason: .wake)
 		}
 	}
 
@@ -1004,6 +1071,11 @@ final class AppState: ObservableObject {
 		}
 		playErrorFeedback()
 		AppLog.error(.app, "Capture interrupted:", error)
+		let category = analyticsErrorCategory(error)
+		Task {
+			await analytics.captureInterrupted(category: category, retrying: true)
+			await analytics.captureSessionEnded(reason: .interrupted)
+		}
 		scheduleCaptureRetry()
 	}
 
@@ -1017,9 +1089,57 @@ final class AppState: ObservableObject {
 				return
 			}
 			if !self.isCapturing {
-				self.startCapture(isAutomatic: true)
+				self.startCapture(reason: .retry)
 			}
 		}
+	}
+
+	private var analyticsSettingsSnapshot: AnalyticsSettingsSnapshot {
+		AnalyticsSettingsSnapshot(
+			replayDurationBucket: PostHogAnalytics.durationBucket(for: replayDuration),
+			resolution: selectedResolution?.id ?? preferredResolutionID ?? "unknown",
+			quality: selectedQuality.id,
+			frameRate: selectedFrameRate.framesPerSecond,
+			container: selectedContainer.id,
+			audioCodec: selectedAudioCodec.id,
+			alwaysRecordEnabled: alwaysRecordEnabled,
+			microphoneEnabled: recordMicrophoneEnabled,
+			desktopAudioEnabled: recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: captureTargetPromptEnabled,
+			discordRPCEnabled: discordRPCEnabled,
+			gamePresenceEnabled: shareGamePresenceEnabled,
+			robloxExperienceEnabled: shareRobloxExperienceEnabled,
+			catboxEnabled: catboxEnabled,
+			litterboxEnabled: litterboxEnabled,
+			launchAtLoginEnabled: launchAtLoginEnabled,
+			betaUpdatesEnabled: betaUpdatesEnabled,
+			customOutputDirectory: outputDirectoryPath != nil
+		)
+	}
+
+	private func analyticsErrorCategory(_ error: Error) -> String {
+		if let captureError = error as? CaptureError {
+			switch captureError {
+			case .noDisplay:
+				return "no_display"
+			case .noAudioDevice:
+				return "no_audio_device"
+			case .writerUnavailable:
+				return "writer_unavailable"
+			case .noFramesCaptured:
+				return "no_frames"
+			case .exportFailed:
+				return "export_failed"
+			case .saveInProgress:
+				return "save_in_progress"
+			case .invalidDuration:
+				return "invalid_duration"
+			case .writerFinishTimedOut:
+				return "writer_timeout"
+			}
+		}
+
+		return "unknown"
 	}
 
 	private func updateGlobalHotkeys() {
@@ -1057,6 +1177,7 @@ final class AppState: ObservableObject {
 				shareGamePresenceEnabled: shareGamePresenceEnabled,
 				shareRobloxExperienceEnabled: shareRobloxExperienceEnabled,
 				fileLoggingEnabled: fileLoggingEnabled,
+				analyticsEnabled: analyticsEnabled,
 
 				betaUpdatesEnabled: betaUpdatesEnabled,
 				catboxEnabled: catboxEnabled,
@@ -1068,6 +1189,8 @@ final class AppState: ObservableObject {
 				outputDirectoryPath: outputDirectoryPath
 			)
 		)
+		let settings = analyticsSettingsSnapshot
+		Task { await analytics.settingsUpdated(settings) }
 	}
 
 	private func refreshStorageWarning() {
