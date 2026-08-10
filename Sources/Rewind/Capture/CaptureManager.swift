@@ -258,22 +258,12 @@ actor CaptureManager {
     }
 
     private var captureAudioSettings: [String: Any] {
-        switch currentAudioCodec.id {
-        case CaptureAudioCodec.aac.id:
-            return [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 192_000,
-            ]
-        default:
-            return [
-                AVFormatIDKey: kAudioFormatAppleLossless,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitDepthHintKey: 16,
-            ]
-        }
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 192_000,
+        ]
     }
 
     private func waitForFileReady(at url: URL) async throws {

@@ -339,7 +339,6 @@ final class AppSettingsStorageTests: XCTestCase {
 
 	func testNonDefaultOptionsArePersisted() throws {
 		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
-		let nonDefaultCodec = CaptureAudioCodec.options.first { !$0.isDefault }!
 		let nonDefaultQuality = QualityPreset.presets.first { !$0.isDefault }!
 		let nonDefaultFrameRate = CaptureFrameRate.options.first { !$0.isDefault }!
 
@@ -348,17 +347,17 @@ final class AppSettingsStorageTests: XCTestCase {
 				qualityID: nonDefaultQuality.id,
 				frameRate: nonDefaultFrameRate.framesPerSecond,
 				containerID: nonDefaultContainer.id,
-				audioCodecID: nonDefaultCodec.id
+				audioCodecID: CaptureAudioCodec.default.id
 			)
 		)
 
 		let dict = try storedDictionary()
 		XCTAssertEqual(dict["containerID"] as? String, nonDefaultContainer.id)
-		XCTAssertEqual(dict["audioCodecID"] as? String, nonDefaultCodec.id)
+		XCTAssertNil(dict["audioCodecID"])
 
 		let loaded = AppSettingsStorage.load()
 		XCTAssertEqual(loaded.containerID, nonDefaultContainer.id)
-		XCTAssertEqual(loaded.audioCodecID, nonDefaultCodec.id)
+		XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.default.id)
 		XCTAssertEqual(loaded.qualityID, nonDefaultQuality.id)
 		XCTAssertEqual(loaded.frameRate, nonDefaultFrameRate.framesPerSecond)
 	}
@@ -397,6 +396,20 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertNil(normalized["frameRate"])
 		XCTAssertNil(normalized["containerID"])
 		XCTAssertNil(normalized["audioCodecID"])
+	}
+
+	func testRemovedAudioCodecsAreNormalizedToAAC() throws {
+		for codecID in ["alac", "lpcm"] {
+			var dict = try XCTUnwrap(
+				JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+			)
+			dict["audioCodecID"] = codecID
+			UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+			let loaded = AppSettingsStorage.load()
+			XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.aac.id)
+			XCTAssertNil(try storedDictionary()["audioCodecID"])
+		}
 	}
 
 	func testLegacyNonDefaultBlobIsPreservedOnLoad() throws {

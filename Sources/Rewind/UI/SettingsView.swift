@@ -223,15 +223,6 @@ private struct CaptureSettingsPane: View {
 			.disabled(settingsLocked)
 
 			Section("Audio") {
-				Picker(selection: $appState.selectedAudioCodec) {
-					ForEach(CaptureAudioCodec.options) { option in
-						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
-					}
-				} label: {
-					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
-				}
-				.pickerStyle(.menu)
-
 				LabeledContent {
 					Toggle("", isOn: $appState.recordDesktopAudioEnabled)
 						.labelsHidden()

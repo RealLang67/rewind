@@ -87,10 +87,8 @@ final class MicrophoneConverter {
     }
 
     /// LPCM layout the mic encoder input expects, derived from the configured
-    /// audio settings. A compressed encoder (AAC/ALAC) accepts any LPCM layout,
-    /// so we use 48 kHz / stereo / Int16 interleaved; an LPCM encoder requires
-    /// the appended buffer to match the output settings exactly, so we build the
-    /// format straight from those settings.
+    /// audio settings. AAC accepts any LPCM layout, so we use 48 kHz / stereo /
+    /// Int16 interleaved for converter input.
     private func targetFormatIfNeeded() -> AVAudioFormat? {
         if let targetFormat { return targetFormat }
         let sampleRate =
