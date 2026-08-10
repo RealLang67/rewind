@@ -398,20 +398,6 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertNil(normalized["audioCodecID"])
 	}
 
-	func testRemovedAudioCodecsAreNormalizedToAAC() throws {
-		for codecID in ["alac", "lpcm"] {
-			var dict = try XCTUnwrap(
-				JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
-			)
-			dict["audioCodecID"] = codecID
-			UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
-
-			let loaded = AppSettingsStorage.load()
-			XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.aac.id)
-			XCTAssertNil(try storedDictionary()["audioCodecID"])
-		}
-	}
-
 	func testLegacyNonDefaultBlobIsPreservedOnLoad() throws {
 		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
 		var dict = try XCTUnwrap(

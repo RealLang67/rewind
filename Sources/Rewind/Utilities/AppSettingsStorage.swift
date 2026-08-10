@@ -326,15 +326,14 @@ enum AppSettingsStorage {
 		if let data = UserDefaults.standard.data(forKey: key),
 		   let decoded = try? JSONDecoder().decode(AppSettings.self, from: data)
 		{
-			let normalized = normalizedAudioCodec(in: decoded)
-			guard isValid(normalized) else {
+			guard isValid(decoded) else {
 				UserDefaults.standard.removeObject(forKey: key)
 				return .default
 			}
-			if let normalizedData = try? JSONEncoder().encode(normalized), normalizedData != data {
-				UserDefaults.standard.set(normalizedData, forKey: key)
+			if let normalized = try? JSONEncoder().encode(decoded), normalized != data {
+				UserDefaults.standard.set(normalized, forKey: key)
 			}
-			return normalized
+			return decoded
 		}
 
 		if UserDefaults.standard.object(forKey: key) != nil {
@@ -352,16 +351,6 @@ enum AppSettingsStorage {
 			return
 		}
 		UserDefaults.standard.set(data, forKey: key)
-	}
-
-	private static func normalizedAudioCodec(in settings: AppSettings) -> AppSettings {
-		guard settings.audioCodecID == "alac" || settings.audioCodecID == "lpcm" else {
-			return settings
-		}
-
-		var normalized = settings
-		normalized.audioCodecID = CaptureAudioCodec.default.id
-		return normalized
 	}
 
 	private static func isValid(_ settings: AppSettings) -> Bool {
