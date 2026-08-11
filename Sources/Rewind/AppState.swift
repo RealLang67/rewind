@@ -60,6 +60,10 @@ final class AppState: ObservableObject {
 			guard !isRestoringSettings else { return }
 			guard selectedResolution != oldValue else { return }
 			preferredResolutionID = selectedResolution?.id
+			if oldValue == nil {
+				restartCaptureSilently()
+				return
+			}
 			persistSettings()
 			restartCaptureSilently()
 		}
