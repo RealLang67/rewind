@@ -14,8 +14,11 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
 	func showIfNeeded() {
 		guard userDefaults.bool(forKey: shownKey) == false else { return }
-		userDefaults.set(true, forKey: shownKey)
 		show()
+	}
+
+	func windowWillClose(_ notification: Notification) {
+		userDefaults.set(true, forKey: shownKey)
 	}
 
 	private func show() {
