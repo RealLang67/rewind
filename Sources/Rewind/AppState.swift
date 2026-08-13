@@ -394,19 +394,29 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	@Published var catboxEnabled = AppSettings.default.catboxEnabled {
+	@Published var enabledUploadProviderIDs = AppSettings.default.enabledUploadProviderIDs {
 		didSet {
 			guard !isRestoringSettings else { return }
-			guard catboxEnabled != oldValue else { return }
+			guard enabledUploadProviderIDs != oldValue else { return }
 			persistSettings()
 		}
 	}
 
-	@Published var litterboxEnabled = AppSettings.default.litterboxEnabled {
-		didSet {
-			guard !isRestoringSettings else { return }
-			guard litterboxEnabled != oldValue else { return }
-			persistSettings()
+	/// Enabled hosts in catalog order, which is the order the share menu uses.
+	var enabledUploadProviders: [ClipUploadProvider] {
+		ClipUploadProvider.providers.filter { enabledUploadProviderIDs.contains($0.id) }
+	}
+
+	func isUploadProviderEnabled(_ provider: ClipUploadProvider) -> Bool {
+		enabledUploadProviderIDs.contains(provider.id)
+	}
+
+	func setUploadProvider(_ provider: ClipUploadProvider, enabled: Bool) {
+		if enabled {
+			guard !enabledUploadProviderIDs.contains(provider.id) else { return }
+			enabledUploadProviderIDs.append(provider.id)
+		} else {
+			enabledUploadProviderIDs.removeAll { $0 == provider.id }
 		}
 	}
 
@@ -514,8 +524,7 @@ final class AppState: ObservableObject {
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		analyticsEnabled = settings.analyticsEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
-		catboxEnabled = settings.catboxEnabled
-		litterboxEnabled = settings.litterboxEnabled
+		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
@@ -579,8 +588,7 @@ final class AppState: ObservableObject {
 		fileLoggingEnabled = settings.fileLoggingEnabled
 		analyticsEnabled = settings.analyticsEnabled
 		betaUpdatesEnabled = settings.betaUpdatesEnabled
-		catboxEnabled = settings.catboxEnabled
-		litterboxEnabled = settings.litterboxEnabled
+		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
@@ -1113,8 +1121,10 @@ final class AppState: ObservableObject {
 			discordRPCEnabled: discordRPCEnabled,
 			gamePresenceEnabled: shareGamePresenceEnabled,
 			robloxExperienceEnabled: shareRobloxExperienceEnabled,
-			catboxEnabled: catboxEnabled,
-			litterboxEnabled: litterboxEnabled,
+			// Kept as two booleans so the existing analytics schema stays intact,
+			// even though uploads are now a list of providers.
+			catboxEnabled: enabledUploadProviderIDs.contains(ClipUploadProvider.catboxID),
+			litterboxEnabled: enabledUploadProviderIDs.contains(ClipUploadProvider.litterboxID),
 			launchAtLoginEnabled: launchAtLoginEnabled,
 			betaUpdatesEnabled: betaUpdatesEnabled,
 			customOutputDirectory: outputDirectoryPath != nil
@@ -1184,8 +1194,7 @@ final class AppState: ObservableObject {
 				analyticsEnabled: analyticsEnabled,
 
 				betaUpdatesEnabled: betaUpdatesEnabled,
-				catboxEnabled: catboxEnabled,
-				litterboxEnabled: litterboxEnabled,
+				enabledUploadProviderIDs: enabledUploadProviderIDs,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
 				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
 				captureTargetPromptEnabled: captureTargetPromptEnabled,

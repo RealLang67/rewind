@@ -35,8 +35,8 @@ struct AppSettings: Codable {
 	var analyticsEnabled: Bool
 
 	var betaUpdatesEnabled: Bool
-	var catboxEnabled: Bool
-	var litterboxEnabled: Bool
+	/// IDs from `ClipUploadProvider.providers`, in the order the user enabled them.
+	var enabledUploadProviderIDs: [String]
 	var recordMicrophoneEnabled: Bool
 	var recordDesktopAudioEnabled: Bool
 	var captureTargetPromptEnabled: Bool
@@ -72,8 +72,7 @@ struct AppSettings: Codable {
 		analyticsEnabled: true,
 
 		betaUpdatesEnabled: false,
-		catboxEnabled: false,
-		litterboxEnabled: false,
+		enabledUploadProviderIDs: [],
 		recordMicrophoneEnabled: false,
 		recordDesktopAudioEnabled: true,
 		captureTargetPromptEnabled: true,
@@ -110,6 +109,9 @@ struct AppSettings: Codable {
 		case analyticsEnabled
 
 		case betaUpdatesEnabled
+		case enabledUploadProviderIDs
+		/// Superseded by `enabledUploadProviderIDs`; still read so existing
+		/// installs keep the hosts they had switched on.
 		case catboxEnabled
 		case litterboxEnabled
 		case recordMicrophoneEnabled
@@ -148,8 +150,7 @@ struct AppSettings: Codable {
 		analyticsEnabled: Bool,
 
 		betaUpdatesEnabled: Bool,
-		catboxEnabled: Bool,
-		litterboxEnabled: Bool,
+		enabledUploadProviderIDs: [String],
 		recordMicrophoneEnabled: Bool,
 		recordDesktopAudioEnabled: Bool,
 		captureTargetPromptEnabled: Bool,
@@ -184,8 +185,7 @@ struct AppSettings: Codable {
 		self.analyticsEnabled = analyticsEnabled
 
 		self.betaUpdatesEnabled = betaUpdatesEnabled
-		self.catboxEnabled = catboxEnabled
-		self.litterboxEnabled = litterboxEnabled
+		self.enabledUploadProviderIDs = enabledUploadProviderIDs
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
 		self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
 		self.captureTargetPromptEnabled = captureTargetPromptEnabled
@@ -232,8 +232,24 @@ struct AppSettings: Codable {
 		analyticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .analyticsEnabled) ?? true
 
 		betaUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .betaUpdatesEnabled) ?? false
-		catboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false
-		litterboxEnabled = try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false
+		if let storedProviderIDs = try container.decodeIfPresent(
+			[String].self, forKey: .enabledUploadProviderIDs
+		) {
+			// Unknown IDs are kept rather than dropped so downgrading and then
+			// upgrading again doesn't silently switch a host back off.
+			enabledUploadProviderIDs = storedProviderIDs.reduce(into: [String]()) { unique, id in
+				if !unique.contains(id) { unique.append(id) }
+			}
+		} else {
+			var migrated: [String] = []
+			if try container.decodeIfPresent(Bool.self, forKey: .catboxEnabled) ?? false {
+				migrated.append(ClipUploadProvider.catboxID)
+			}
+			if try container.decodeIfPresent(Bool.self, forKey: .litterboxEnabled) ?? false {
+				migrated.append(ClipUploadProvider.litterboxID)
+			}
+			enabledUploadProviderIDs = migrated
+		}
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
 		recordDesktopAudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordDesktopAudioEnabled) ?? true
 		captureTargetPromptEnabled = try container.decodeIfPresent(Bool.self, forKey: .captureTargetPromptEnabled) ?? true
@@ -277,8 +293,7 @@ struct AppSettings: Codable {
 		try container.encode(analyticsEnabled, forKey: .analyticsEnabled)
 
 		try container.encode(betaUpdatesEnabled, forKey: .betaUpdatesEnabled)
-		try container.encode(catboxEnabled, forKey: .catboxEnabled)
-		try container.encode(litterboxEnabled, forKey: .litterboxEnabled)
+		try container.encode(enabledUploadProviderIDs, forKey: .enabledUploadProviderIDs)
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
 		try container.encode(recordDesktopAudioEnabled, forKey: .recordDesktopAudioEnabled)
 		try container.encode(captureTargetPromptEnabled, forKey: .captureTargetPromptEnabled)

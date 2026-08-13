@@ -182,10 +182,11 @@ struct TrimEditorView: View {
 	@State private var uploadSuccess = false
 	@State private var uploadFailed = false
 	@State private var isTrimming = false
-	@AppStorage("litterboxExpiration") private var litterboxExpiration = "72h"
-	@State private var uploadTask: URLSessionUploadTask?
-	@State private var uploadProgressObs: NSKeyValueObservation?
+	/// Key kept from when Litterbox was the only host with an expiry choice.
+	@AppStorage("litterboxExpiration") private var uploadExpiration = "72h"
+	@State private var uploadTask: Task<Void, Never>?
 	@State private var uploadProgress: Double = 0.0
+	@State private var uploadErrorMessage: String?
 	@State private var showProgressPopover = false
 
 	var body: some View {
@@ -214,26 +215,24 @@ struct TrimEditorView: View {
 							copyClipToPasteboard(clip.url)
 						}
 
-						if appState.catboxEnabled {
-							Button("Upload to Catbox.moe") {
-								uploadClip(clip.url, provider: "catbox")
+						ForEach(appState.enabledUploadProviders) { provider in
+							if provider.supportsExpiration {
+								Menu("Upload to \(provider.displayName)") {
+									Picker("Expiration", selection: $uploadExpiration) {
+										ForEach(provider.expirationOptions) { option in
+											Text(option.label).tag(option.id)
+										}
+									}
+									Button("Upload") {
+										uploadClip(clip.url, provider: provider)
+									}
+								}
+							} else {
+								Button("Upload to \(provider.displayName)") {
+									uploadClip(clip.url, provider: provider)
+								}
 							}
 						}
-
-						if appState.litterboxEnabled {
-							Menu("Upload to Litterbox") {
-								Picker("Expiration", selection: $litterboxExpiration) {
-									Text("1 Hour").tag("1h")
-									Text("12 Hours").tag("12h")
-									Text("24 Hours").tag("24h")
-									Text("72 Hours").tag("72h")
-								}
-								Button("Upload") {
-									uploadClip(clip.url, provider: "litterbox")
-								}
-							}
-						}
-
 					} label: {
 						Label("Share", systemImage: "square.and.arrow.up")
 					}
@@ -257,7 +256,7 @@ struct TrimEditorView: View {
 									.foregroundStyle(.orange)
 								Text("Oops! Upload failed.")
 									.font(.headline)
-								Text("The clip couldn't be uploaded.")
+								Text(uploadErrorMessage ?? "The clip couldn't be uploaded.")
 									.font(.subheadline)
 									.foregroundStyle(.secondary)
 									.multilineTextAlignment(.center)
@@ -273,8 +272,6 @@ struct TrimEditorView: View {
 									Spacer()
 									Button("Cancel") {
 										uploadTask?.cancel()
-										isUploading = false
-										showProgressPopover = false
 									}
 								}
 							}
@@ -342,111 +339,54 @@ struct TrimEditorView: View {
 		appState.trackClipAction(action: "copy")
 	}
 
-	private func showUploadFailure(provider: String) {
+	private func showUploadFailure(_ error: Error, provider: ClipUploadProvider) {
 		isUploading = false
 		uploadSuccess = false
+		uploadErrorMessage = (error as? LocalizedError)?.errorDescription
 		uploadFailed = true
-		appState.trackClipAction(action: "upload", result: "failed", provider: provider)
+		appState.trackClipAction(action: "upload", result: "failed", provider: provider.id)
 		Task {
 			try? await Task.sleep(nanoseconds: 5_000_000_000)
 			uploadFailed = false
+			uploadErrorMessage = nil
 			showProgressPopover = false
 		}
 	}
 
-	private func uploadClip(_ url: URL, provider: String) {
+	private func uploadClip(_ url: URL, provider: ClipUploadProvider) {
 		isUploading = true
 		uploadSuccess = false
 		uploadFailed = false
+		uploadErrorMessage = nil
 		showProgressPopover = true
 		uploadProgress = 0.0
-		appState.trackClipAction(action: "upload", result: "started", provider: provider)
+		appState.trackClipAction(action: "upload", result: "started", provider: provider.id)
 
-		Task {
-			let apiURL = provider == "catbox"
-				? URL(string: "https://catbox.moe/user/api.php")!
-				: URL(string: "https://litterbox.catbox.moe/resources/internals/api.php")!
-
-			var request = URLRequest(url: apiURL)
-			request.httpMethod = "POST"
-			let boundary = UUID().uuidString
-			request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-			var data = Data()
-			data.append("--\(boundary)\r\n".data(using: .utf8)!)
-			data.append("Content-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n".data(using: .utf8)!)
-
-			if provider == "litterbox" {
-				data.append("--\(boundary)\r\n".data(using: .utf8)!)
-				data.append("Content-Disposition: form-data; name=\"time\"\r\n\r\n\(litterboxExpiration)\r\n".data(using: .utf8)!)
-			}
-
-			let isMP4 = url.pathExtension.lowercased() == "mp4"
-			let filename = isMP4 ? "clip.mp4" : "clip.mov"
-			let contentType = isMP4 ? "video/mp4" : "video/quicktime"
-
-			data.append("--\(boundary)\r\n".data(using: .utf8)!)
-			data.append("Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-			data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
-
-			guard let fileData = try? Data(contentsOf: url) else {
-				self.isUploading = false
-				self.showProgressPopover = false
-				self.appState.trackClipAction(action: "upload", result: "failed", provider: provider)
-				return
-			}
-			data.append(fileData)
-			data.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-			let task = URLSession.shared.uploadTask(with: request, from: data) { resData, response, error in
-				DispatchQueue.main.async {
-					self.uploadProgressObs?.invalidate()
-					self.uploadProgressObs = nil
-
-					if let error = error as NSError? {
-						if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
-							// user cancelled
-							self.isUploading = false
-							self.showProgressPopover = false
-							self.appState.trackClipAction(action: "upload", result: "cancelled", provider: provider)
-						} else {
-							print("Upload error: \(error)")
-							self.showUploadFailure(provider: provider)
-						}
-						return
-					}
-
-					let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-					let body = String(data: resData ?? Data(), encoding: .utf8)?
-						.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-					let uploadedURL = body.hasPrefix("https://") ? URL(string: body) : nil
-
-					if (200 ..< 300).contains(status), let uploadedURL {
-						NSPasteboard.general.clearContents()
-						NSPasteboard.general.setString(uploadedURL.absoluteString, forType: .string)
-						self.uploadSuccess = true
-						self.appState.trackClipAction(action: "upload", provider: provider)
-						Task {
-							try? await Task.sleep(nanoseconds: 2_500_000_000)
-							self.uploadSuccess = false
-							self.isUploading = false
-							self.showProgressPopover = false
-						}
-					} else {
-						print("Upload failed. status: \(status), body: \(body)")
-						self.showUploadFailure(provider: provider)
-					}
+		uploadTask = Task { @MainActor in
+			do {
+				let link = try await ClipUploader.shared.upload(
+					clipAt: url,
+					provider: provider,
+					expirationID: provider.supportsExpiration ? uploadExpiration : nil
+				) { fraction in
+					Task { @MainActor in uploadProgress = fraction }
 				}
-			}
 
-			DispatchQueue.main.async {
-				self.uploadTask = task
-				self.uploadProgressObs = task.progress.observe(\.fractionCompleted) { progress, _ in
-					DispatchQueue.main.async {
-						self.uploadProgress = progress.fractionCompleted
-					}
-				}
-				task.resume()
+				NSPasteboard.general.clearContents()
+				NSPasteboard.general.setString(link.absoluteString, forType: .string)
+				uploadSuccess = true
+				appState.trackClipAction(action: "upload", provider: provider.id)
+				try? await Task.sleep(nanoseconds: 2_500_000_000)
+				uploadSuccess = false
+				isUploading = false
+				showProgressPopover = false
+			} catch is CancellationError {
+				isUploading = false
+				showProgressPopover = false
+				appState.trackClipAction(action: "upload", result: "cancelled", provider: provider.id)
+			} catch {
+				AppLog.error(.library, "Upload to \(provider.id) failed:", error)
+				showUploadFailure(error, provider: provider)
 			}
 		}
 	}

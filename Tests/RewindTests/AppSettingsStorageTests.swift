@@ -41,8 +41,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
 		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
 		XCTAssertEqual(settings.analyticsEnabled, AppSettings.default.analyticsEnabled)
-		XCTAssertEqual(settings.catboxEnabled, AppSettings.default.catboxEnabled)
-		XCTAssertEqual(settings.litterboxEnabled, AppSettings.default.litterboxEnabled)
+		XCTAssertEqual(settings.enabledUploadProviderIDs, AppSettings.default.enabledUploadProviderIDs)
 		XCTAssertEqual(settings.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
@@ -76,8 +75,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			analyticsEnabled: false,
 
 			betaUpdatesEnabled: false,
-			catboxEnabled: true,
-			litterboxEnabled: false,
+			enabledUploadProviderIDs: [ClipUploadProvider.catboxID],
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: false,
 			captureTargetPromptEnabled: false,
@@ -112,8 +110,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
 		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
 		XCTAssertEqual(loaded.analyticsEnabled, expected.analyticsEnabled)
-		XCTAssertEqual(loaded.catboxEnabled, expected.catboxEnabled)
-		XCTAssertEqual(loaded.litterboxEnabled, expected.litterboxEnabled)
+		XCTAssertEqual(loaded.enabledUploadProviderIDs, expected.enabledUploadProviderIDs)
 		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
 		XCTAssertEqual(loaded.recordDesktopAudioEnabled, expected.recordDesktopAudioEnabled)
 		XCTAssertEqual(loaded.captureTargetPromptEnabled, expected.captureTargetPromptEnabled)
@@ -151,8 +148,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			analyticsEnabled: false,
 
 			betaUpdatesEnabled: false,
-			catboxEnabled: false,
-			litterboxEnabled: false,
+			enabledUploadProviderIDs: [],
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: true,
 			captureTargetPromptEnabled: true,
@@ -254,8 +250,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			analyticsEnabled: AppSettings.default.analyticsEnabled,
 
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
-			catboxEnabled: AppSettings.default.catboxEnabled,
-			litterboxEnabled: AppSettings.default.litterboxEnabled,
+			enabledUploadProviderIDs: AppSettings.default.enabledUploadProviderIDs,
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
 			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
@@ -310,8 +305,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			analyticsEnabled: AppSettings.default.analyticsEnabled,
 
 			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
-			catboxEnabled: AppSettings.default.catboxEnabled,
-			litterboxEnabled: AppSettings.default.litterboxEnabled,
+			enabledUploadProviderIDs: AppSettings.default.enabledUploadProviderIDs,
 			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
 			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
 			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,

@@ -501,20 +501,26 @@ private struct IntegrationsSettingsPane: View {
 			.disabled(settingsLocked)
 
 			Section {
-				Toggle(isOn: $appState.catboxEnabled) {
-					HelpLabel("Catbox.moe", help: "Enable uploading clips to Catbox.moe (permanent).")
-				}
-				Toggle(isOn: $appState.litterboxEnabled) {
-					HelpLabel("Litterbox", help: "Enable uploading clips to Litterbox (expiration configurable on upload).")
+				ForEach(ClipUploadProvider.providers) { provider in
+					Toggle(isOn: uploadProviderBinding(for: provider)) {
+						HelpLabel(provider.displayName, help: provider.summary)
+					}
 				}
 			} header: {
 				Text("Upload Providers")
 			} footer: {
-				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
+				Text("All of these host clips anonymously, with no account. By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
 			.disabled(settingsLocked)
 		}
 		.formStyle(.grouped)
+	}
+
+	private func uploadProviderBinding(for provider: ClipUploadProvider) -> Binding<Bool> {
+		Binding(
+			get: { appState.isUploadProviderEnabled(provider) },
+			set: { appState.setUploadProvider(provider, enabled: $0) }
+		)
 	}
 }
 
