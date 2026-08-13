@@ -154,22 +154,8 @@ struct ClipCard: View {
 		}
 		.task(id: clip.id) {
 			if thumbnail == nil {
-				thumbnail = await generateThumbnail(for: clip.url)
+				thumbnail = await ClipThumbnailCache.shared.thumbnail(for: clip)
 			}
-		}
-	}
-
-	private func generateThumbnail(for url: URL) async -> NSImage? {
-		let asset = AVURLAsset(url: url)
-		let generator = AVAssetImageGenerator(asset: asset)
-		generator.appliesPreferredTrackTransform = true
-		generator.maximumSize = CGSize(width: 480, height: 270)
-
-		do {
-			let cgImage = try await generator.image(at: .zero).image
-			return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-		} catch {
-			return nil
 		}
 	}
 }
@@ -321,6 +307,9 @@ struct TrimEditorView: View {
 				do {
 					try? FileManager.default.removeItem(at: clip.url)
 					try FileManager.default.moveItem(at: tempURL, to: clip.url)
+					// The clip was rewritten in place, so its cached first frame
+					// is no longer the frame it starts on.
+					await ClipThumbnailCache.shared.invalidate(clipID: clip.id)
 					appState.trackClipAction(action: "trim")
 				} catch {
 					print("Error saving trimmed clip: \(error)")
