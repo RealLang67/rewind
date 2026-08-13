@@ -131,88 +131,118 @@ extension ReplayWriter {
 
     // - Finish ---
 
+    /// Finishes the current segment, giving up after `finishWritingTimeout`.
+    ///
+    /// The timeout used to race the real work in a task group, which could not
+    /// work: a group awaits its children before propagating, and the child was
+    /// suspended on a continuation that cancellation cannot resume. A wedged
+    /// writer therefore hung forever instead of timing out. Both outcomes now
+    /// share one continuation, resumed by whichever arrives first.
     func finishWriting() async throws -> URL {
-        let result = try await withThrowingTaskGroup(of: URL.self) { group in
-            group.addTask {
-                try await self.finishWritingInternal()
-            }
-            group.addTask {
-                try await Task.sleep(
-                    nanoseconds: UInt64(Constants.finishWritingTimeout * 1_000_000_000))
+        try await withCheckedThrowingContinuation { continuation in
+            let once = ResumeOnce(continuation)
+
+            // Deliberately not scheduled on the writer queue: if that queue is the
+            // thing that is stuck, a timer on it would never fire either.
+            let timeout = DispatchWorkItem {
                 AppLog.error(
                     .writer,
                     "ReplayWriter.finishWriting timed out after",
                     Constants.finishWritingTimeout,
                     "seconds"
                 )
-                throw CaptureError.writerFinishTimedOut
+                once.resume(.failure(CaptureError.writerFinishTimedOut))
             }
-            guard let result = try await group.next() else {
-                throw CaptureError.writerUnavailable
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + Constants.finishWritingTimeout, execute: timeout
+            )
+
+            self.finishWritingInternal { result in
+                timeout.cancel()
+                once.resume(result)
             }
-            group.cancelAll()
-            return result
         }
-        return result
     }
 
-    private func finishWritingInternal() async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            self.onQueue {
-                guard let writer = self.writer, let outputURL = self.outputURL else {
-                    AppLog.debug(.writer, "ReplayWriter.finishWriting: writer unavailable.")
-                    continuation.resume(throwing: CaptureError.writerUnavailable)
-                    return
-                }
+    private func finishWritingInternal(_ completion: @escaping @Sendable (Result<URL, Error>) -> Void) {
+        self.onQueue {
+            guard let writer = self.writer, let outputURL = self.outputURL else {
+                AppLog.debug(.writer, "ReplayWriter.finishWriting: writer unavailable.")
+                completion(.failure(CaptureError.writerUnavailable))
+                return
+            }
 
-                guard self.sessionStarted else {
-                    AppLog.debug(.writer, "ReplayWriter.finishWriting: no session started.")
+            guard self.sessionStarted else {
+                AppLog.debug(.writer, "ReplayWriter.finishWriting: no session started.")
+                self.resetState()
+                completion(.failure(CaptureError.noFramesCaptured))
+                return
+            }
+
+            AppLog.debug(
+                .writer, "ReplayWriter.finishWriting: start. status:", writer.status.rawValue)
+
+            // Give any samples still queued from backpressure one last chance
+            // to reach the writer before their inputs are marked finished —
+            // otherwise they're silently dropped by resetState() below.
+            if let videoInput = self.videoInput {
+                self.drainPendingVideoIfReady(writer: writer, videoInput: videoInput)
+            }
+            if let audioInput = self.audioInput {
+                self.drainPendingAudioWhileReady(audioInput: audioInput, writer: writer)
+            }
+            if let micInput = self.micInput {
+                self.drainPendingMicWhileReady(micInput: micInput, writer: writer)
+            }
+
+            self.acceptsMediaData = false
+            self.videoInput?.markAsFinished()
+            self.audioInput?.markAsFinished()
+            self.micInput?.markAsFinished()
+            let writerBox = UncheckedSendable(writer)
+            writer.finishWriting { [self] in
+                // dispatch back to our queue to safely access state
+                self.onQueue {
+                    let writer = writerBox.value
+                    let error = writer.error
+                    if let error {
+                        AppLog.error(.writer, "ReplayWriter.finishWriting: failed.", error: error)
+                    } else {
+                        AppLog.debug(.writer, "ReplayWriter.finishWriting: success.")
+                    }
                     self.resetState()
-                    continuation.resume(throwing: CaptureError.noFramesCaptured)
-                    return
-                }
 
-                AppLog.debug(
-                    .writer, "ReplayWriter.finishWriting: start. status:", writer.status.rawValue)
-
-                // Give any samples still queued from backpressure one last chance
-                // to reach the writer before their inputs are marked finished —
-                // otherwise they're silently dropped by resetState() below.
-                if let videoInput = self.videoInput {
-                    self.drainPendingVideoIfReady(writer: writer, videoInput: videoInput)
-                }
-                if let audioInput = self.audioInput {
-                    self.drainPendingAudioWhileReady(audioInput: audioInput, writer: writer)
-                }
-                if let micInput = self.micInput {
-                    self.drainPendingMicWhileReady(micInput: micInput, writer: writer)
-                }
-
-                self.acceptsMediaData = false
-                self.videoInput?.markAsFinished()
-                self.audioInput?.markAsFinished()
-                self.micInput?.markAsFinished()
-                let writerBox = UncheckedSendable(writer)
-                writer.finishWriting { [self] in
-                    // dispatch back to our queue to safely access state
-                    self.onQueue {
-                        let writer = writerBox.value
-                        let error = writer.error
-                        if let error {
-                            AppLog.error(.writer, "ReplayWriter.finishWriting: failed.", error: error)
-                        } else {
-                            AppLog.debug(.writer, "ReplayWriter.finishWriting: success.")
-                        }
-                        self.resetState()
-
-                        if let error {
-                            continuation.resume(throwing: error)
-                        } else {
-                            continuation.resume(returning: outputURL)
-                        }
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(outputURL))
                     }
                 }
             }
         }
+    }
+}
+
+/// Hands a continuation to exactly one of two racing callers.
+///
+/// `finishWriting` resumes either from the writer's completion handler or from the
+/// timeout, and those run on different queues, so the guard needs its own lock.
+/// Internal rather than private so the race it guards can be tested directly:
+/// resuming a `CheckedContinuation` twice traps the process.
+final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL, Error>?
+
+    init(_ continuation: CheckedContinuation<URL, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ result: Result<URL, Error>) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+
+        pending?.resume(with: result)
     }
 }
