@@ -1150,6 +1150,12 @@ final class AppState: ObservableObject {
 				return "invalid_duration"
 			case .writerFinishTimedOut:
 				return "writer_timeout"
+			case let .streamStopped(reason):
+				// Split these apart deliberately. A stop with no error at all is the
+				// signature of the macOS 14.7–15.3 ScreenCaptureKit bug, so counting
+				// it separately shows how often that fires in the wild. Only the
+				// fixed category is reported, never the reason text.
+				return reason == nil ? "stream_stopped_null_error" : "stream_stopped"
 			}
 		}
 

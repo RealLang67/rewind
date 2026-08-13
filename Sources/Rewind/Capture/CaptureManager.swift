@@ -54,8 +54,11 @@ actor CaptureManager {
         writerQueue = DispatchQueue(label: "rewind.capture.writer", qos: .userInitiated)
         screenCapture = ScreenCaptureService(sampleQueue: queue, audioQueue: audioQueue)
         activeWriter = ReplayWriter(queue: writerQueue)
-        screenCapture.onCaptureStopped = { [weak self] error in
-            guard let self, let error else { return }
+        screenCapture.onCaptureStopped = { [weak self] reason in
+            guard let self else { return }
+            // Only plain values cross into the task: the framework's error object
+            // may already be freed by the time this runs.
+            let error = CaptureError.streamStopped(reason: reason)
             Task {
                 await self.handleCaptureFailure(error, label: "Capture stream stopped")
             }

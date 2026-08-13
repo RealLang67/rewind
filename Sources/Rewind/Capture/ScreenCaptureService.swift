@@ -1,15 +1,16 @@
 import AVFoundation
 import CoreGraphics
+import RewindObjCSupport
 @preconcurrency import ScreenCaptureKit
 
 /// this type is used across CaptureManager actor isolation and ScreenCaptureKit callback queues
 /// callback handlers and cross queue debug flags are lock protected and blah blah too complicated
-final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable {
 	private let callbackLock = NSLock()
 	private var _onVideoSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onMicSampleBuffer: ((CMSampleBuffer) -> Void)?
-	private var _onCaptureStopped: ((Error?) -> Void)?
+	private var _onCaptureStopped: ((String?) -> Void)?
 	private let stateLock = NSLock()
 	private var _loggedNonCompleteFrame = false
 	private var _loggedMissingImageBuffer = false
@@ -30,7 +31,10 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		set { callbackLock.withLock { _onMicSampleBuffer = newValue } }
 	}
 
-	var onCaptureStopped: ((Error?) -> Void)? {
+	/// Reports the stop reason as a plain string rather than an `Error`. See
+	/// `RewindStreamStopObserver` — the framework's error object cannot be
+	/// safely bridged into Swift or held past the delegate callback.
+	var onCaptureStopped: ((String?) -> Void)? {
 		get { callbackLock.withLock { _onCaptureStopped } }
 		set { callbackLock.withLock { _onCaptureStopped = newValue } }
 	}
@@ -38,6 +42,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	private(set) var displaySize: CGSize?
 
 	private var stream: SCStream?
+	private let stopObserver = RewindStreamStopObserver()
 	private let videoQueue: DispatchQueue
 	private let audioQueue: DispatchQueue
 	private var captureResolution: CaptureResolution?
@@ -64,6 +69,11 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		videoQueue = sampleQueue
 		self.audioQueue = audioQueue
 		super.init()
+		stopObserver.onStop = { [weak self] reason in
+			guard let self else { return }
+			let stoppedCallback = self.onCaptureStopped
+			stoppedCallback?(reason)
+		}
 	}
 
 	func startCapture(
@@ -216,7 +226,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		displaySize = outputSize
 		loggedFirstFrame = false
 
-		let stream = SCStream(filter: filter, configuration: config, delegate: self)
+		let stream = SCStream(filter: filter, configuration: config, delegate: stopObserver)
 		try stream.addStreamOutput(
 			self, type: SCStreamOutputType.screen, sampleHandlerQueue: videoQueue
 		)
@@ -286,11 +296,6 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		@unknown default:
 			return
 		}
-	}
-
-	func stream(_: SCStream, didStopWithError error: Error) {
-		let stoppedCallback = onCaptureStopped
-		stoppedCallback?(error)
 	}
 
 	private func isCompleteVideoFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
