@@ -15,6 +15,12 @@ final class ReplayWriter: @unchecked Sendable {
     enum Constants {
         static let maxPendingAudioSamples = 240
         static let maxPendingVideoSamples = 120
+        /// Sized to cover `audioBufferingWindow` even at 4K120 (~24 frames, ~300 MB),
+        /// which is what the queue exists for, while keeping the ceiling far below
+        /// the ~1.5 GB a bare 120-frame cap allowed at 4K.
+        static let maxPendingVideoBytes = 320 * 1_024 * 1_024
+        /// Audio samples are tiny; this only guards against a pathological backlog.
+        static let maxPendingAudioBytes = 16 * 1_024 * 1_024
         static let audioJitterTolerance = CMTime(seconds: 0.005, preferredTimescale: 1_000)
         static let maxAudioPTSAdjustment = CMTime(seconds: 0.25, preferredTimescale: 600)
         static let audioBufferingWindow = CMTime(seconds: 0.20, preferredTimescale: 600)
@@ -78,13 +84,16 @@ final class ReplayWriter: @unchecked Sendable {
     /// Buffered until the writer session starts (or an input becomes ready) so
     /// leading samples aren't lost.
     var pendingVideo = PendingSampleQueue(
-        capacity: Constants.maxPendingVideoSamples, label: "ReplayWriter.appendVideo",
+        capacity: Constants.maxPendingVideoSamples,
+        byteBudget: Constants.maxPendingVideoBytes, label: "ReplayWriter.appendVideo",
         logInterval: Constants.pendingVideoDropLogInterval)
     var pendingAudio = PendingSampleQueue(
-        capacity: Constants.maxPendingAudioSamples, label: "ReplayWriter.appendAudio",
+        capacity: Constants.maxPendingAudioSamples,
+        byteBudget: Constants.maxPendingAudioBytes, label: "ReplayWriter.appendAudio",
         logInterval: Constants.pendingAudioDropLogInterval)
     var pendingMic = PendingSampleQueue(
-        capacity: Constants.maxPendingAudioSamples, label: "ReplayWriter.appendMic",
+        capacity: Constants.maxPendingAudioSamples,
+        byteBudget: Constants.maxPendingAudioBytes, label: "ReplayWriter.appendMic",
         logInterval: Constants.pendingAudioDropLogInterval)
 
     // - Audio format ---
