@@ -107,10 +107,21 @@ enum AppLog {
 
 		let signals: [Int32] = [SIGABRT, SIGILL, SIGSEGV, SIGFPE, SIGBUS]
 		for sig in signals {
-			signal(sig) { signal in
-				AppLog.logCrash("Application crashed with signal: \(signal)\nCall Stack:\n\(Thread.callStackSymbols.joined(separator: "\n"))")
-				// `_exit`, not `exit` because exit's atexit/stdio teardown isnt signal-safe
-				_exit(signal)
+			signal(sig) { received in
+				// Best effort only: logging allocates and takes locks, neither of
+				// which is async-signal-safe, so this line may not make it out when
+				// the crash happened inside malloc. Symbolicating here was worse —
+				// it allocated far more and usually deadlocked before writing
+				// anything. The re-raise below is what actually produces a usable
+				// backtrace, so keep this cheap.
+				AppLog.logCrash("Application crashed with signal: \(received)")
+
+				// Restore the default handler and re-raise, so macOS still writes a
+				// full crash report to ~/Library/Logs/DiagnosticReports. Calling
+				// `_exit` here instead would terminate the process cleanly and
+				// suppress that report, leaving nothing to debug from.
+				Darwin.signal(received, SIG_DFL)
+				raise(received)
 			}
 		}
 	}
