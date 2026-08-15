@@ -17,12 +17,12 @@ Rewind is a free, open-source macOS app for instantly clipping highlights of you
 - At least 10 gb of free disk space
 
 ## Installation
-
+ 
 1. Go to the [Releases page](https://github.com/l1zov/rewind/releases) and download the `.dmg` from the latest release
-2. Open it and drag **Rewind** into your Applications folder
-3. Launch Rewind from Applications
-
-**Note:** The first time you open Rewind, macOS may block it since it's not yet signed with an Apple certificate. Go to **System Settings -> Privacy & Security**, scroll down and click **Open Anyway**. Read more about this [here](https://disable-gatekeeper.github.io/).
+2. Open the DMG and double-click **Install Rewind**
+3. Launch Rewind from Applications or from the installer prompt
+ 
+**Note:** The first time you open the installer, macOS may block it since it's not yet signed with an Apple certificate. Go to **System Settings -> Privacy & Security**, scroll down and click **Open Anyway**. Read more about Gatekeeper [here](https://disable-gatekeeper.github.io/).
 
 If you prefer to build from source, follow the instructions below.
 

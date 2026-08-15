@@ -242,13 +242,131 @@ EOF
 
 adhoc_sign "${APP_BUNDLE}" "app bundle" "${STAGING_ROOT}/Rewind.entitlements"
 
-echo "Creating drag-and-drop DMG..."
+echo "Creating installer DMG..."
 remove_path "${DMG_PATH}" "disk image" || exit 1
 DMG_STAGING_DIR="${STAGING_ROOT}/dmg"
 mkdir -p "${DMG_STAGING_DIR}"
-ditto "${APP_BUNDLE}" "${DMG_STAGING_DIR}/${APP_NAME}.app"
-ln -s /Applications "${DMG_STAGING_DIR}/Applications"
-hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
+
+INSTALLER_NAME="Install ${APP_NAME}"
+INSTALLER_APP="${DMG_STAGING_DIR}/${INSTALLER_NAME}.app"
+INSTALLER_CONTENTS="${INSTALLER_APP}/Contents"
+INSTALLER_MACOS="${INSTALLER_CONTENTS}/MacOS"
+INSTALLER_RESOURCES="${INSTALLER_CONTENTS}/Resources"
+
+mkdir -p "${INSTALLER_MACOS}" "${INSTALLER_RESOURCES}"
+
+ditto "${APP_BUNDLE}" "${INSTALLER_RESOURCES}/${APP_NAME}.app"
+
+if [[ -f "${PROJECT_ROOT}/Resources/AppIcon.icns" ]]; then
+  cp "${PROJECT_ROOT}/Resources/AppIcon.icns" "${INSTALLER_RESOURCES}/AppIcon.icns"
+fi
+
+cat > "${INSTALLER_CONTENTS}/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>installer</string>
+  <key>CFBundleIdentifier</key>
+  <string>${BUNDLE_ID}.installer</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>${INSTALLER_NAME}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>${VERSION}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+EOF
+
+cat > "${INSTALLER_MACOS}/installer" <<'EOF'
+#!/bin/bash
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME="Rewind"
+BUNDLE_ID="com.rewind.app"
+APP_SOURCE="$(cd "${SCRIPT_DIR}/../Resources/${APP_NAME}.app" 2>/dev/null && pwd || true)"
+
+if [[ -z "${APP_SOURCE}" || ! -d "${APP_SOURCE}" ]]; then
+  osascript -e "display alert \"${APP_NAME} Installer Error\" message \"Could not find ${APP_NAME}.app inside the installer bundle.\" as critical"
+  exit 1
+fi
+
+DEST_DIR="/Applications"
+TARGET_APP="${DEST_DIR}/${APP_NAME}.app"
+
+CONFIRM=$(osascript -e "button returned of (display dialog \"Install ${APP_NAME} to /Applications?\n\nThis will install the application, remove quarantine attributes, and reset system permissions.\" with title \"${APP_NAME} Installer\" buttons {\"Cancel\", \"Install\"} default button \"Install\")" 2>/dev/null || echo "Cancel")
+
+if [[ "${CONFIRM}" != "Install" ]]; then
+  exit 0
+fi
+
+do_install() {
+  local target="$1"
+  local source="$2"
+  local bundle="$3"
+
+  killall "${APP_NAME}" 2>/dev/null || true
+  rm -rf "${target}"
+  ditto "${source}" "${target}"
+
+  xattr -cr "${target}" 2>/dev/null || true
+  xattr -dr com.apple.quarantine "${target}" 2>/dev/null || true
+  chmod -R 755 "${target}" 2>/dev/null || true
+
+  tccutil reset ScreenCapture "${bundle}" 2>/dev/null || true
+  tccutil reset Microphone "${bundle}" 2>/dev/null || true
+  tccutil reset Accessibility "${bundle}" 2>/dev/null || true
+}
+
+if [[ ! -w "${DEST_DIR}" ]] || [[ -e "${TARGET_APP}" && ! -w "${TARGET_APP}" ]]; then
+  ADMIN_SCRIPT="killall ${APP_NAME} 2>/dev/null || true; rm -rf '${TARGET_APP}' && ditto '${APP_SOURCE}' '${TARGET_APP}' && xattr -cr '${TARGET_APP}' 2>/dev/null || true; xattr -dr com.apple.quarantine '${TARGET_APP}' 2>/dev/null || true; chmod -R 755 '${TARGET_APP}' 2>/dev/null || true; tccutil reset ScreenCapture ${BUNDLE_ID} 2>/dev/null || true; tccutil reset Microphone ${BUNDLE_ID} 2>/dev/null || true; tccutil reset Accessibility ${BUNDLE_ID} 2>/dev/null || true"
+
+  if ! osascript -e "do shell script \"${ADMIN_SCRIPT}\" with administrator privileges" 2>/dev/null; then
+    osascript -e "display alert \"Installation Cancelled\" message \"Administrator privileges were required but not granted.\" as critical"
+    exit 1
+  fi
+else
+  do_install "${TARGET_APP}" "${APP_SOURCE}" "${BUNDLE_ID}"
+fi
+
+if [[ ! -d "${TARGET_APP}" || ! -x "${TARGET_APP}/Contents/MacOS/${APP_NAME}" ]]; then
+  osascript -e "display alert \"Installation Failed\" message \"Failed to install ${APP_NAME} to /Applications.\" as critical"
+  exit 1
+fi
+
+CHOICE=$(osascript -e "button returned of (display dialog \"${APP_NAME} has been successfully installed!\n\nQuarantine was cleared and permissions have been reset.\" with title \"Installation Complete\" buttons {\"Done\", \"Open ${APP_NAME}\"} default button \"Open ${APP_NAME}\")" 2>/dev/null || echo "Done")
+
+if [[ "${CHOICE}" == "Open ${APP_NAME}" ]]; then
+  open "${TARGET_APP}"
+fi
+
+MOUNT_POINT="$(df "${SCRIPT_DIR}" 2>/dev/null | tail -1 | awk '{print $NF}')"
+if [[ "${MOUNT_POINT}" =~ ^/Volumes/ ]]; then
+  (sleep 1 && diskutil eject "${MOUNT_POINT}" >/dev/null 2>&1) &
+fi
+
+exit 0
+EOF
+
+chmod +x "${INSTALLER_MACOS}/installer"
+adhoc_sign "${INSTALLER_APP}" "installer app bundle"
+
+hdiutil create -volname "${INSTALLER_NAME}" -srcfolder "${DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
 adhoc_sign "${DMG_PATH}" "disk image"
 
 echo "Publishing app bundle to dist..."
