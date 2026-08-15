@@ -795,7 +795,9 @@ final class AppState: ObservableObject {
 			Task { await analytics.captureSessionStarted(reason: reason, settings: settings) }
 			automaticRestartFailureCount = 0
 			updateDiscordActivity(.recording(game: nil, joinURL: nil, artURL: nil))
-			playRecordingStartFeedback()
+			if !isAutomatic {
+				playRecordingStartFeedback()
+			}
 			automaticCaptureRetryTask?.cancel()
 		} catch {
 			isCapturing = false
@@ -847,7 +849,9 @@ final class AppState: ObservableObject {
 		isCapturing = false
 		Task { await analytics.captureSessionEnded(reason: reason) }
 		updateDiscordActivity(.idle)
-		playRecordingEndFeedback()
+		if reason == .manual {
+			playRecordingEndFeedback()
+		}
 	}
 
 	/// Presents the macOS content picker and returns the chosen filter, boxed so it
@@ -1053,6 +1057,7 @@ final class AppState: ObservableObject {
 	}
 
 	func handleSleep() {
+		guard !isAsleep else { return }
 		AppLog.info(.app, "System going to sleep")
 		isAsleep = true
 		automaticCaptureRetryTask?.cancel()
@@ -1068,6 +1073,7 @@ final class AppState: ObservableObject {
 	}
 
 	func handleWake() {
+		guard isAsleep else { return }
 		AppLog.info(.app, "System waking up")
 		isAsleep = false
 		if alwaysRecordEnabled, !isDisplayOrSystemAsleep {
@@ -1081,7 +1087,9 @@ final class AppState: ObservableObject {
 		if isDisplayOrSystemAsleep {
 			return
 		}
-		playErrorFeedback()
+		if !alwaysRecordEnabled {
+			playErrorFeedback()
+		}
 		AppLog.error(.app, "Capture interrupted:", error)
 		let category = analyticsErrorCategory(error)
 		Task {
