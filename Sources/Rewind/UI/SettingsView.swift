@@ -509,7 +509,7 @@ private struct IntegrationsSettingsPane: View {
 			} header: {
 				Text("Upload Providers")
 			} footer: {
-				Text("All of these host clips anonymously, with no account. By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
+				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
 			.disabled(settingsLocked)
 		}
