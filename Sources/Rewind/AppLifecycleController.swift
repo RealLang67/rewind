@@ -27,14 +27,24 @@ final class AppLifecycleController: NSObject {
 		guard !hasStarted else { return }
 		hasStarted = true
 
-		NSApp.setActivationPolicy(.accessory)
 		ensureUIControllers()
 		configureHotkeys()
 		observeApplicationState()
 		observeWindowState()
 
-		windowCoordinator?.showOnboardingIfNeeded()
-		appState.startAlwaysRecording()
+		if windowCoordinator?.shouldShowOnboarding == true {
+			windowCoordinator?.showOnboardingIfNeeded(onDismiss: { [weak self] in
+				self?.appState.startAlwaysRecording()
+			})
+		} else {
+			NSApp.setActivationPolicy(.accessory)
+			appState.startAlwaysRecording()
+		}
+	}
+
+	func showOnboarding() {
+		ensureUIControllers()
+		windowCoordinator?.showOnboarding()
 	}
 
 	func stop() {
