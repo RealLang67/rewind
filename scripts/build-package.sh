@@ -191,7 +191,7 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <key>DTSDKName</key>
   <string>macosx16.0</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>14.0</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>SUFeedURL</key>
@@ -283,7 +283,7 @@ cat > "${INSTALLER_CONTENTS}/Info.plist" <<EOF
   <key>CFBundleVersion</key>
   <string>${VERSION}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>14.0</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>NSPrincipalClass</key>

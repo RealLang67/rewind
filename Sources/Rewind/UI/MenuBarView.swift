@@ -225,7 +225,7 @@ struct MenuBarView: View {
 		// fallback
 		NSWorkspace.shared.activateFileViewerSelecting([clip.url])
 		if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
-			finder.activate(options: [.activateIgnoringOtherApps])
+			finder.activate()
 		}
 	}
 

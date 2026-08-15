@@ -78,7 +78,7 @@ struct HomeView: View {
 					.foregroundStyle(.secondary)
 			}
 		}
-		.onChange(of: appState.clipToOpen?.id) { _ in
+		.onChange(of: appState.clipToOpen?.id) {
 			openRequestedClip()
 		}
 		.onAppear {

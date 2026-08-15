@@ -1,5 +1,5 @@
 import AVFoundation
-import AppKit
+@preconcurrency import AppKit
 
 /// Generates a clip's grid thumbnail once and reuses it afterwards, in memory and
 /// on disk.
