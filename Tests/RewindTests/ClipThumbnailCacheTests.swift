@@ -25,6 +25,7 @@ private actor GenerationRecorder {
 	}
 }
 
+@MainActor
 final class ClipThumbnailCacheTests: XCTestCase {
 	private var directory: URL!
 
@@ -60,7 +61,7 @@ final class ClipThumbnailCacheTests: XCTestCase {
 		let image = makeImage()
 		return ClipThumbnailCache(directory: directory) { _, _ in
 			await recorder.begin()
-			return image
+			return UncheckedSendable(image)
 		}
 	}
 
@@ -124,13 +125,13 @@ final class ClipThumbnailCacheTests: XCTestCase {
 		let cache = makeCache(recorder: recorder)
 
 		_ = await cache.thumbnail(for: clip)
-		await cache.invalidate(clipID: clip.id)
+		cache.invalidate(clipID: clip.id)
 		_ = await cache.thumbnail(for: clip)
 
 		let calls = await recorder.calls
 		XCTAssertEqual(calls, 2, "After invalidation the thumbnail must be rebuilt")
 
-		await cache.invalidate(clipID: clip.id)
+		cache.invalidate(clipID: clip.id)
 		let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
 			.filter { $0.hasSuffix(".jpg") }
 		XCTAssertTrue(leftovers.isEmpty, "Invalidation should remove the stored file too")

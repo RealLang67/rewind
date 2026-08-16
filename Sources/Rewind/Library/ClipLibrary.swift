@@ -71,7 +71,7 @@ final class ClipLibrary: ObservableObject {
 
 		clips.removeAll { $0.id == clip.id }
 		// Otherwise the thumbnails directory grows forever.
-		await ClipThumbnailCache.shared.invalidate(clipID: clip.id)
+		ClipThumbnailCache.shared.invalidate(clipID: clip.id)
 	}
 
 	private func load() async {

@@ -82,7 +82,6 @@ private struct GeneralSettingsPane: View {
 				Button("Check for Updates...") {
 					updaterController.checkForUpdates()
 				}
-				.liquidGlassButtonStyle()
 				.disabled(!updaterController.updater.canCheckForUpdates)
 
 				Toggle(isOn: $appState.betaUpdatesEnabled) {
@@ -109,14 +108,12 @@ private struct GeneralSettingsPane: View {
 						NSWorkspace.shared.activateFileViewerSelecting([url])
 					}
 				}
-				.liquidGlassButtonStyle()
 			}
 
 			Section("Advanced") {
 				Button("Reset to Defaults...", role: .destructive) {
 					showingResetConfirmation = true
 				}
-				.liquidGlassButtonStyle()
 			}
 		}
 		.formStyle(.grouped)
@@ -635,7 +632,14 @@ private struct PermissionCallout: View {
 			.controlSize(.small)
 		}
 		.padding(12)
-		.liquidGlassCard(cornerRadius: 14)
+		.background(
+			RoundedRectangle(cornerRadius: 12, style: .continuous)
+				.fill(.ultraThinMaterial)
+		)
+		.overlay(
+			RoundedRectangle(cornerRadius: 12, style: .continuous)
+				.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+		)
 		.padding(.horizontal)
 		.padding(.top, 8)
 	}

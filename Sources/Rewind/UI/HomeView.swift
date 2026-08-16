@@ -309,7 +309,7 @@ struct TrimEditorView: View {
 					try FileManager.default.moveItem(at: tempURL, to: clip.url)
 					// The clip was rewritten in place, so its cached first frame
 					// is no longer the frame it starts on.
-					await ClipThumbnailCache.shared.invalidate(clipID: clip.id)
+					ClipThumbnailCache.shared.invalidate(clipID: clip.id)
 					appState.trackClipAction(action: "trim")
 				} catch {
 					print("Error saving trimmed clip: \(error)")

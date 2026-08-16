@@ -1,5 +1,5 @@
 import AVFoundation
-@preconcurrency import AppKit
+import AppKit
 
 /// Generates a clip's grid thumbnail once and reuses it afterwards, in memory and
 /// on disk.
@@ -9,7 +9,8 @@ import AVFoundation
 /// re-decoded every visible clip. That work also lands on the same media hardware
 /// the live encoder is using, so an uncached library could starve a recording in
 /// progress. Generation is capped at two at a time for the same reason.
-actor ClipThumbnailCache {
+@MainActor
+final class ClipThumbnailCache {
 	static let shared = ClipThumbnailCache()
 
 	/// Matches the grid cell, which never displays larger than this.
@@ -17,11 +18,11 @@ actor ClipThumbnailCache {
 	private static let compressionQuality = 0.8
 
 	private let directory: URL
-	private let generate: @Sendable (URL, CGSize) async -> NSImage?
+	private let generate: @Sendable (URL, CGSize) async -> UncheckedSendable<NSImage?>
 	private let memory = NSCache<NSString, NSImage>()
 
 	/// Shares one generation between every cell asking for the same clip.
-	private var inFlight: [UUID: Task<NSImage?, Never>] = [:]
+	private var inFlight: [UUID: Task<UncheckedSendable<NSImage?>, Never>] = [:]
 
 	private let maxConcurrentGenerations = 2
 	private var runningGenerations = 0
@@ -29,8 +30,7 @@ actor ClipThumbnailCache {
 
 	init(
 		directory: URL? = nil,
-		generate: @escaping @Sendable (URL, CGSize) async -> NSImage? = ClipThumbnailCache
-			.decodeFirstFrame
+		generate: (@Sendable (URL, CGSize) async -> UncheckedSendable<NSImage?>)? = nil
 	) {
 		if let directory {
 			self.directory = directory
@@ -41,7 +41,9 @@ actor ClipThumbnailCache {
 				.appendingPathComponent("Rewind", isDirectory: true)
 				.appendingPathComponent("Thumbnails", isDirectory: true)
 		}
-		self.generate = generate
+		self.generate = generate ?? { url, size in
+			UncheckedSendable(await ClipThumbnailCache.decodeFirstFrame(url: url, size: size))
+		}
 		memory.countLimit = 300
 		try? FileManager.default.createDirectory(
 			at: self.directory, withIntermediateDirectories: true
@@ -54,14 +56,14 @@ actor ClipThumbnailCache {
 			return cached
 		}
 		if let existing = inFlight[clip.id] {
-			return await existing.value
+			return await existing.value.value
 		}
 
-		let task = Task<NSImage?, Never> { [weak self] in
-			await self?.load(clip: clip) ?? nil
+		let task = Task { @MainActor [weak self] () -> UncheckedSendable<NSImage?> in
+			UncheckedSendable(await self?.load(clip: clip))
 		}
 		inFlight[clip.id] = task
-		let image = await task.value
+		let image = await task.value.value
 		inFlight[clip.id] = nil
 		return image
 	}
@@ -82,7 +84,7 @@ actor ClipThumbnailCache {
 		}
 
 		await acquireGenerationSlot()
-		let generated = await generate(clip.url, Self.thumbnailSize)
+		let generated = await generate(clip.url, Self.thumbnailSize).value
 		releaseGenerationSlot()
 
 		guard let generated else { return nil }
@@ -140,16 +142,18 @@ actor ClipThumbnailCache {
 
 	// - Helpers ---
 
-	static func decodeFirstFrame(url: URL, size: CGSize) async -> NSImage? {
+	nonisolated static func decodeFirstFrame(url: URL, size: CGSize) async -> NSImage? {
 		let asset = AVURLAsset(url: url)
 		let generator = AVAssetImageGenerator(asset: asset)
 		generator.appliesPreferredTrackTransform = true
 		generator.maximumSize = size
 		do {
 			let cgImage = try await generator.image(at: .zero).image
-			return NSImage(
-				cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)
-			)
+			return await MainActor.run {
+				NSImage(
+					cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)
+				)
+			}
 		} catch {
 			AppLog.debug(.library, "Thumbnail generation failed for", url.lastPathComponent)
 			return nil
