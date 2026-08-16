@@ -57,7 +57,7 @@ jobs:
       - name: Build package
         env:
           POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
-          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST || vars.POSTHOG_HOST }}
         run: bash scripts/build-package.sh --version "${{ steps.version_meta.outputs.version }}"
 
       - name: Create zip artifact
