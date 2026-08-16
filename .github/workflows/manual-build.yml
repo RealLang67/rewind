@@ -84,8 +84,8 @@ jobs:
           KEY_FILE="$(mktemp)"
           printf '%s' "${SPARKLE_PRIVATE_KEY}" | tr -d '\r\n ' > "${KEY_FILE}"
 
-          # Move zip out temporarily to avoid duplicate archive error
           mv dist/*.zip ./
+          mv dist/*-installer.dmg ./
 
           if [ "${IS_PRERELEASE}" = "true" ]; then
             .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file "${KEY_FILE}" --channel beta --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
@@ -95,6 +95,7 @@ jobs:
 
           rm -f "${KEY_FILE}"
           mv ./*.zip dist/
+          mv ./*-installer.dmg dist/
 
           # Strict check: ensure the new release is properly signed
           if ! grep -q 'sparkle:edSignature' dist/appcast.xml; then

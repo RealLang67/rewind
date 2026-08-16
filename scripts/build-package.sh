@@ -62,6 +62,7 @@ fi
 
 VERSION_TAG="v${VERSION}"
 DMG_PATH="${DIST_DIR}/${APP_NAME}-${VERSION_TAG}.dmg"
+INSTALLER_DMG_PATH="${DIST_DIR}/${APP_NAME}-${VERSION_TAG}-installer.dmg"
 STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${APP_NAME}.XXXXXX")"
 APP_BUNDLE="${STAGING_ROOT}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
@@ -242,13 +243,22 @@ EOF
 
 adhoc_sign "${APP_BUNDLE}" "app bundle" "${STAGING_ROOT}/Rewind.entitlements"
 
-echo "Creating installer DMG..."
+echo "Creating drag-and-drop DMG..."
 remove_path "${DMG_PATH}" "disk image" || exit 1
-DMG_STAGING_DIR="${STAGING_ROOT}/dmg"
-mkdir -p "${DMG_STAGING_DIR}"
+APP_DMG_STAGING_DIR="${STAGING_ROOT}/dmg"
+mkdir -p "${APP_DMG_STAGING_DIR}"
+ditto "${APP_BUNDLE}" "${APP_DMG_STAGING_DIR}/${APP_NAME}.app"
+ln -s /Applications "${APP_DMG_STAGING_DIR}/Applications"
+hdiutil create -volname "${APP_NAME}" -srcfolder "${APP_DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
+adhoc_sign "${DMG_PATH}" "disk image"
+
+echo "Creating installer DMG..."
+remove_path "${INSTALLER_DMG_PATH}" "installer disk image" || exit 1
+INSTALLER_STAGING_DIR="${STAGING_ROOT}/installer-dmg"
+mkdir -p "${INSTALLER_STAGING_DIR}"
 
 INSTALLER_NAME="Install ${APP_NAME}"
-INSTALLER_APP="${DMG_STAGING_DIR}/${INSTALLER_NAME}.app"
+INSTALLER_APP="${INSTALLER_STAGING_DIR}/${INSTALLER_NAME}.app"
 INSTALLER_CONTENTS="${INSTALLER_APP}/Contents"
 INSTALLER_MACOS="${INSTALLER_CONTENTS}/MacOS"
 INSTALLER_RESOURCES="${INSTALLER_CONTENTS}/Resources"
@@ -366,8 +376,8 @@ EOF
 chmod +x "${INSTALLER_MACOS}/installer"
 adhoc_sign "${INSTALLER_APP}" "installer app bundle"
 
-hdiutil create -volname "${INSTALLER_NAME}" -srcfolder "${DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
-adhoc_sign "${DMG_PATH}" "disk image"
+hdiutil create -volname "${INSTALLER_NAME}" -srcfolder "${INSTALLER_STAGING_DIR}" -ov -format UDZO "${INSTALLER_DMG_PATH}" >/dev/null
+adhoc_sign "${INSTALLER_DMG_PATH}" "installer disk image"
 
 echo "Publishing app bundle to dist..."
 APP_BUNDLE_PUBLISHED="false"
