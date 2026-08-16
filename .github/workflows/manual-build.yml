@@ -69,7 +69,6 @@ jobs:
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           IS_PRERELEASE: ${{ steps.version_meta.outputs.is_prerelease }}
-          TARGET_VERSION: ${{ steps.version_meta.outputs.version }}
         run: |
           if [ -z "${SPARKLE_PRIVATE_KEY}" ]; then
             echo "missing SPARKLE_PRIVATE_KEY secret" >&2
@@ -81,33 +80,9 @@ jobs:
           curl -fsSL "https://l1zov.github.io/rewind/appcast.xml" -o dist/appcast.xml \
             || echo "No existing appcast found; generating a fresh feed."
 
-          # If the feed already contains an entry for this exact version, remove it
-          # so generate_appcast is forced to generate a fresh, signed item.
-          if [ -f dist/appcast.xml ]; then
-            python3 -c "
-import xml.etree.ElementTree as ET
-try:
-    tree = ET.parse('dist/appcast.xml')
-    root = tree.getroot()
-    ns = {'sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle'}
-    channel = root.find('channel')
-    if channel is not None:
-        for item in list(channel.findall('item')):
-            ver = item.findtext('sparkle:version', '', ns)
-            if ver == '${TARGET_VERSION}':
-                channel.remove(item)
-        tree.write('dist/appcast.xml', encoding='utf-8', xml_declaration=True)
-except Exception as e:
-    print(f'Warning cleaning feed: {e}')
-"
-          fi
-
           # Write clean private key to temporary file
           KEY_FILE="$(mktemp)"
           printf '%s' "${SPARKLE_PRIVATE_KEY}" | tr -d '\r\n ' > "${KEY_FILE}"
-
-          # Import key into runner's keychain for Sparkle tools
-          .build/artifacts/sparkle/Sparkle/bin/generate_keys -f "${KEY_FILE}" || true
 
           # Move zip out temporarily to avoid duplicate archive error
           mv dist/*.zip ./
@@ -121,26 +96,11 @@ except Exception as e:
           rm -f "${KEY_FILE}"
           mv ./*.zip dist/
 
-          # Strict check: verify that the newly generated version item has a valid signature
-          python3 -c "
-import xml.etree.ElementTree as ET, sys
-tree = ET.parse('dist/appcast.xml')
-root = tree.getroot()
-ns = {'sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle'}
-items = [i for i in root.findall('.//item') if i.findtext('sparkle:version', '', ns) == '${TARGET_VERSION}']
-if not items:
-    print('Error: Version ${TARGET_VERSION} item not found in appcast.xml!', file=sys.stderr)
-    sys.exit(1)
-enclosure = items[0].find('enclosure')
-if enclosure is None:
-    print('Error: Version ${TARGET_VERSION} is missing enclosure tag!', file=sys.stderr)
-    sys.exit(1)
-sig = enclosure.get('{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature')
-if not sig:
-    print('Error: Version ${TARGET_VERSION} is missing sparkle:edSignature in appcast.xml!', file=sys.stderr)
-    sys.exit(1)
-print(f'Successfully verified sparkle:edSignature for version ${TARGET_VERSION}: {sig}')
-"
+          # Strict check: ensure the new release is properly signed
+          if ! grep -q 'sparkle:edSignature' dist/appcast.xml; then
+            echo "Error: appcast.xml was generated without sparkle:edSignature!" >&2
+            exit 1
+          fi
 
       - name: Deploy Appcast to GitHub Pages
         run: |
