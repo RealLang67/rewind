@@ -80,16 +80,27 @@ jobs:
           curl -fsSL "https://l1zov.github.io/rewind/appcast.xml" -o dist/appcast.xml \
             || echo "No existing appcast found; generating a fresh feed."
 
-          # Betas go to the 'beta' channel so only opted-in users receive them.
-          CHANNEL_ARGS=()
-          if [ "${IS_PRERELEASE}" = "true" ]; then
-            CHANNEL_ARGS=(--channel beta)
-          fi
+          # Write clean private key to temporary file
+          KEY_FILE="$(mktemp)"
+          printf '%s' "${SPARKLE_PRIVATE_KEY}" | tr -d '\r\n ' > "${KEY_FILE}"
 
           # Move zip out temporarily to avoid duplicate archive error
           mv dist/*.zip ./
-          echo "${SPARKLE_PRIVATE_KEY}" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file - "${CHANNEL_ARGS[@]}" --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file "${KEY_FILE}" --channel beta --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+          else
+            .build/artifacts/sparkle/Sparkle/bin/generate_appcast --ed-key-file "${KEY_FILE}" --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.version_meta.outputs.release_tag }}/" dist/
+          fi
+
+          rm -f "${KEY_FILE}"
           mv ./*.zip dist/
+
+          # Strict check: ensure the new release is properly signed
+          if ! grep -q 'sparkle:edSignature' dist/appcast.xml; then
+            echo "Error: appcast.xml was generated without sparkle:edSignature!" >&2
+            exit 1
+          fi
 
       - name: Deploy Appcast to GitHub Pages
         run: |
