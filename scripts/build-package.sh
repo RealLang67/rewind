@@ -319,7 +319,7 @@ fi
 DEST_DIR="/Applications"
 TARGET_APP="${DEST_DIR}/${APP_NAME}.app"
 
-CONFIRM=$(osascript -e "button returned of (display dialog \"Install ${APP_NAME} to /Applications?\n\nThis will install the application, remove quarantine attributes, and reset system permissions.\" with title \"${APP_NAME} Installer\" buttons {\"Cancel\", \"Install\"} default button \"Install\")" 2>/dev/null || echo "Cancel")
+CONFIRM=$(osascript -e "button returned of (display dialog \"Install ${APP_NAME} to /Applications?\" with title \"${APP_NAME} Installer\" buttons {\"Cancel\", \"Install\"} default button \"Install\")" 2>/dev/null || echo "Cancel")
 
 if [[ "${CONFIRM}" != "Install" ]]; then
   exit 0
@@ -359,7 +359,7 @@ if [[ ! -d "${TARGET_APP}" || ! -x "${TARGET_APP}/Contents/MacOS/${APP_NAME}" ]]
   exit 1
 fi
 
-CHOICE=$(osascript -e "button returned of (display dialog \"${APP_NAME} has been successfully installed!\n\nQuarantine was cleared and permissions have been reset.\" with title \"Installation Complete\" buttons {\"Done\", \"Open ${APP_NAME}\"} default button \"Open ${APP_NAME}\")" 2>/dev/null || echo "Done")
+CHOICE=$(osascript -e "button returned of (display dialog \"${APP_NAME} has been successfully installed!\" with title \"Installation Complete\" buttons {\"Done\", \"Open ${APP_NAME}\"} default button \"Open ${APP_NAME}\")" 2>/dev/null || echo "Done")
 
 if [[ "${CHOICE}" == "Open ${APP_NAME}" ]]; then
   open "${TARGET_APP}"
