@@ -29,25 +29,26 @@ private actor GenerationRecorder {
 final class ClipThumbnailCacheTests: XCTestCase {
 	private var directory: URL!
 
-	override func setUpWithError() throws {
+	override func setUp() async throws {
 		directory = FileManager.default.temporaryDirectory
 			.appendingPathComponent("thumb-tests-\(UUID().uuidString)")
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 	}
 
-	override func tearDownWithError() throws {
+	override func tearDown() async throws {
 		try? FileManager.default.removeItem(at: directory)
 	}
 
 	// - Helpers ---
 
-	private func makeImage() -> NSImage {
+	private func makeCGImage() -> CGImage {
 		let image = NSImage(size: NSSize(width: 16, height: 9))
 		image.lockFocus()
 		NSColor.systemTeal.setFill()
 		NSRect(x: 0, y: 0, width: 16, height: 9).fill()
 		image.unlockFocus()
-		return image
+		var rect = NSRect(x: 0, y: 0, width: 16, height: 9)
+		return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
 	}
 
 	/// A stand-in for the clip file itself; only its modification date matters here.
@@ -58,10 +59,10 @@ final class ClipThumbnailCacheTests: XCTestCase {
 	}
 
 	private func makeCache(recorder: GenerationRecorder) -> ClipThumbnailCache {
-		let image = makeImage()
+		let cgImage = makeCGImage()
 		return ClipThumbnailCache(directory: directory) { _, _ in
 			await recorder.begin()
-			return UncheckedSendable(image)
+			return cgImage
 		}
 	}
 

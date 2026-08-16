@@ -18,11 +18,11 @@ final class ClipThumbnailCache {
 	private static let compressionQuality = 0.8
 
 	private let directory: URL
-	private let generate: @Sendable (URL, CGSize) async -> UncheckedSendable<NSImage?>
+	private let generate: @Sendable (URL, CGSize) async -> CGImage?
 	private let memory = NSCache<NSString, NSImage>()
 
 	/// Shares one generation between every cell asking for the same clip.
-	private var inFlight: [UUID: Task<UncheckedSendable<NSImage?>, Never>] = [:]
+	private var inFlight: [UUID: Task<CGImage?, Never>] = [:]
 
 	private let maxConcurrentGenerations = 2
 	private var runningGenerations = 0
@@ -30,7 +30,7 @@ final class ClipThumbnailCache {
 
 	init(
 		directory: URL? = nil,
-		generate: (@Sendable (URL, CGSize) async -> UncheckedSendable<NSImage?>)? = nil
+		generate: (@Sendable (URL, CGSize) async -> CGImage?)? = nil
 	) {
 		if let directory {
 			self.directory = directory
@@ -42,7 +42,7 @@ final class ClipThumbnailCache {
 				.appendingPathComponent("Thumbnails", isDirectory: true)
 		}
 		self.generate = generate ?? { url, size in
-			UncheckedSendable(await ClipThumbnailCache.decodeFirstFrame(url: url, size: size))
+			await ClipThumbnailCache.decodeFirstFrame(url: url, size: size)
 		}
 		memory.countLimit = 300
 		try? FileManager.default.createDirectory(
@@ -55,17 +55,31 @@ final class ClipThumbnailCache {
 		if let cached = memory.object(forKey: key) {
 			return cached
 		}
-		if let existing = inFlight[clip.id] {
-			return await existing.value.value
+		if let onDisk = loadFromDisk(clip: clip) {
+			memory.setObject(onDisk, forKey: key)
+			return onDisk
 		}
 
-		let task = Task { @MainActor [weak self] () -> UncheckedSendable<NSImage?> in
-			UncheckedSendable(await self?.load(clip: clip))
+		if let existing = inFlight[clip.id] {
+			if let cgImage = await existing.value {
+				return makeAndCacheImage(from: cgImage, clipID: clip.id)
+			}
+			return nil
+		}
+
+		let task = Task<CGImage?, Never> { [weak self] () -> CGImage? in
+			guard let self else { return nil }
+			await self.acquireGenerationSlot()
+			let cgImage = await self.generate(clip.url, Self.thumbnailSize)
+			self.releaseGenerationSlot()
+			return cgImage
 		}
 		inFlight[clip.id] = task
-		let image = await task.value.value
+		let cgImage = await task.value
 		inFlight[clip.id] = nil
-		return image
+
+		guard let cgImage else { return nil }
+		return makeAndCacheImage(from: cgImage, clipID: clip.id)
 	}
 
 	/// Drops a clip's thumbnail. Trimming rewrites the clip in place, so the
@@ -77,20 +91,17 @@ final class ClipThumbnailCache {
 
 	// - Loading ---
 
-	private func load(clip: Clip) async -> NSImage? {
-		if let onDisk = loadFromDisk(clip: clip) {
-			memory.setObject(onDisk, forKey: clip.id.uuidString as NSString)
-			return onDisk
+	private func makeAndCacheImage(from cgImage: CGImage, clipID: UUID) -> NSImage {
+		let key = clipID.uuidString as NSString
+		if let cached = memory.object(forKey: key) {
+			return cached
 		}
-
-		await acquireGenerationSlot()
-		let generated = await generate(clip.url, Self.thumbnailSize).value
-		releaseGenerationSlot()
-
-		guard let generated else { return nil }
-		memory.setObject(generated, forKey: clip.id.uuidString as NSString)
-		writeToDisk(generated, clipID: clip.id)
-		return generated
+		let image = NSImage(
+			cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)
+		)
+		memory.setObject(image, forKey: key)
+		writeToDisk(image, clipID: clipID)
+		return image
 	}
 
 	/// Returns the stored thumbnail only when it is at least as new as the clip,
@@ -142,18 +153,13 @@ final class ClipThumbnailCache {
 
 	// - Helpers ---
 
-	nonisolated static func decodeFirstFrame(url: URL, size: CGSize) async -> NSImage? {
+	nonisolated static func decodeFirstFrame(url: URL, size: CGSize) async -> CGImage? {
 		let asset = AVURLAsset(url: url)
 		let generator = AVAssetImageGenerator(asset: asset)
 		generator.appliesPreferredTrackTransform = true
 		generator.maximumSize = size
 		do {
-			let cgImage = try await generator.image(at: .zero).image
-			return await MainActor.run {
-				NSImage(
-					cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)
-				)
-			}
+			return try await generator.image(at: .zero).image
 		} catch {
 			AppLog.debug(.library, "Thumbnail generation failed for", url.lastPathComponent)
 			return nil
