@@ -3,29 +3,44 @@ import PackageDescription
 
 let package = Package(
 	name: "Rewind",
-	platforms: [.macOS(.v13)],
+	platforms: [.macOS(.v14)],
 	products: [
 		.executable(name: "Rewind", targets: ["Rewind"]),
 	],
 	dependencies: [
 		.package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.2"),
+		.package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack", from: "3.8.0"),
 	],
 	targets: [
+		.target(
+			name: "RewindObjCSupport",
+			path: "Sources/RewindObjCSupport"
+		),
 		.executableTarget(
 			name: "Rewind",
 			dependencies: [
 				.product(name: "Sparkle", package: "Sparkle"),
+				.product(name: "CocoaLumberjackSwift", package: "CocoaLumberjack"),
+				"RewindObjCSupport",
 			],
 			path: "Sources/Rewind",
 			linkerSettings: [
 				.linkedLibrary("sqlite3"),
-				.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
+				.unsafeFlags([
+					"-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+					"-Xlinker", "-rpath", "-Xlinker", "@executable_path",
+				]),
 			]
 		),
 		.testTarget(
 			name: "RewindTests",
 			dependencies: ["Rewind"],
-			path: "Tests/RewindTests"
+			path: "Tests/RewindTests",
+			linkerSettings: [
+				.unsafeFlags([
+					"-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../..",
+				]),
+			]
 		),
 	]
 )

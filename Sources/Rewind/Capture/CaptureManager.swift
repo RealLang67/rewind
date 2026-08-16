@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
+@preconcurrency import ScreenCaptureKit
 
 actor CaptureManager {
     private enum Constants {
@@ -17,16 +18,18 @@ actor CaptureManager {
     /// standby writer pre-configured for instant switchover
     private var standbyWriter: ReplayWriter?
     private let replayBuffer = ReplayBuffer()
+    private let exporter = ReplayExporter()
     private var isRunning = false
     private var isSaving = false
     private var isStopping = false
     private var rotationTask: Task<Void, Never>?
     private let segmentDuration: TimeInterval = 10
-    private let maxBufferDuration: TimeInterval = 120
+    private let maxBufferDuration: TimeInterval = 300
     private var currentQuality: QualityPreset = .default
     private var currentFrameRate: Int = CaptureFrameRate.default.framesPerSecond
     private var currentAudioCodec: CaptureAudioCodec = .default
-    private var useBFrames: Bool = false
+    private var recordMicrophoneEnabled: Bool = false
+    private var recordDesktopAudioEnabled: Bool = true
     private var onCaptureInterrupted: (@MainActor (Error) -> Void)?
 
     /// thread-safe reference to current writer for use in callbacks
@@ -51,8 +54,11 @@ actor CaptureManager {
         writerQueue = DispatchQueue(label: "rewind.capture.writer", qos: .userInitiated)
         screenCapture = ScreenCaptureService(sampleQueue: queue, audioQueue: audioQueue)
         activeWriter = ReplayWriter(queue: writerQueue)
-        screenCapture.onCaptureStopped = { [weak self] error in
-            guard let self, let error else { return }
+        screenCapture.onCaptureStopped = { [weak self] reason in
+            guard let self else { return }
+            // Only plain values cross into the task: the framework's error object
+            // may already be freed by the time this runs.
+            let error = CaptureError.streamStopped(reason: reason)
             Task {
                 await self.handleCaptureFailure(error, label: "Capture stream stopped")
             }
@@ -64,22 +70,32 @@ actor CaptureManager {
     }
 
     func start(
+        contentFilter: UncheckedSendable<SCContentFilter>? = nil,
         resolution: CaptureResolution? = nil,
         quality: QualityPreset = .default,
         frameRate: Int = CaptureFrameRate.default.framesPerSecond,
         audioCodec: CaptureAudioCodec = .default,
-        useBFrames: Bool = false
+        recordMicrophoneEnabled: Bool = false,
+        recordDesktopAudioEnabled: Bool = true,
+        microphoneDeviceID: String? = nil
     ) async throws {
         guard !isRunning else { return }
         currentQuality = quality
         currentFrameRate = frameRate
         currentAudioCodec = audioCodec
-        self.useBFrames = useBFrames
+        self.recordMicrophoneEnabled = recordMicrophoneEnabled
+        self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
+
+
         do {
             try await screenCapture.startCapture(
+                contentFilter: contentFilter,
                 resolution: resolution,
                 quality: quality,
-                frameRate: frameRate
+                frameRate: frameRate,
+                recordMicrophone: recordMicrophoneEnabled,
+                recordDesktopAudio: recordDesktopAudioEnabled,
+                microphoneDeviceID: microphoneDeviceID
             )
             try configureActiveWriter()
             currentWriter = activeWriter
@@ -88,6 +104,9 @@ actor CaptureManager {
             }
             screenCapture.onAudioSampleBuffer = { [weak self] sampleBuffer in
                 self?.currentWriter?.appendAudio(sampleBuffer)
+            }
+            screenCapture.onMicSampleBuffer = { [weak self] sampleBuffer in
+                self?.currentWriter?.appendMic(sampleBuffer)
             }
             isRunning = true
             prepareStandbyWriter()
@@ -112,6 +131,8 @@ actor CaptureManager {
         defer { isSaving = false }
 
         AppLog.info(.capture, "Save replay start. seconds:", seconds)
+
+
         var sourceURL: URL?
         var sourceURLAddedToBuffer = false
         do {
@@ -133,8 +154,10 @@ actor CaptureManager {
             removeFiles(removed)
             let segments = await replayBuffer.latestSegments(totalDuration: seconds)
             segmentsToUnlock = segments
-            let exportURL = try await exportFromSegments(
-                segments, seconds: seconds, container: container)
+
+            let exportURL = try await exporter.export(
+                segments: segments, seconds: seconds, container: container)
+
             await replayBuffer.unlockSegments(segmentsToUnlock)
             AppLog.info(.capture, "Save replay success:", exportURL.lastPathComponent)
             return exportURL
@@ -160,11 +183,11 @@ actor CaptureManager {
         try activeWriter.configure(
             outputURL: outputURL,
             videoSize: size,
-            includeAudio: true,
+            includeAudio: recordDesktopAudioEnabled,
             audioSettings: captureAudioSettings,
             quality: currentQuality,
             frameRate: currentFrameRate,
-            useBFrames: useBFrames
+            recordMicrophone: recordMicrophoneEnabled
         )
     }
 
@@ -177,11 +200,11 @@ actor CaptureManager {
             try writer.configure(
                 outputURL: outputURL,
                 videoSize: size,
-                includeAudio: true,
+                includeAudio: recordDesktopAudioEnabled,
                 audioSettings: captureAudioSettings,
                 quality: currentQuality,
                 frameRate: currentFrameRate,
-                useBFrames: useBFrames
+                recordMicrophone: recordMicrophoneEnabled
             )
             standbyWriter = writer
         } catch {
@@ -200,8 +223,19 @@ actor CaptureManager {
             throw CaptureError.writerUnavailable
         }
 
-        // atomically switch the writer reference (callbacks will pick up new writer)
         let oldWriter = activeWriter
+
+        #if arch(x86_64)
+            currentWriter = nil
+            let sourceURL = try await oldWriter.finishWriting()
+
+            activeWriter = newWriter
+            standbyWriter = nil
+            currentWriter = newWriter
+            prepareStandbyWriter()
+            return sourceURL
+        #else
+        // callbacks will pick up new writer
         activeWriter = newWriter
         standbyWriter = nil
 
@@ -216,6 +250,7 @@ actor CaptureManager {
         let sourceURL = try await oldWriter.finishWriting()
         prepareStandbyWriter()
         return sourceURL
+        #endif
     }
 
     private func makeSegmentURL() -> URL {
@@ -226,167 +261,12 @@ actor CaptureManager {
     }
 
     private var captureAudioSettings: [String: Any] {
-        switch currentAudioCodec.id {
-        case CaptureAudioCodec.linearPCM.id:
-            return [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false,
-                AVLinearPCMIsBigEndianKey: false,
-                "AVLinearPCMIsNonInterleaved": false,
-            ]
-        case CaptureAudioCodec.aac.id:
-            return [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 192_000,
-            ]
-        default:
-            return [
-                AVFormatIDKey: kAudioFormatAppleLossless,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitDepthHintKey: 16,
-            ]
-        }
-    }
-
-    private func exportFromSegments(
-        _ segments: [ReplaySegment],
-        seconds: TimeInterval,
-        container: CaptureContainer
-    ) async throws -> URL {
-        guard !segments.isEmpty else { throw CaptureError.noFramesCaptured }
-
-        let composition = AVMutableComposition()
-        let videoTrack = composition.addMutableTrack(
-            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-        let audioTrack = composition.addMutableTrack(
-            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-
-        var cursor = CMTime.zero
-        var appliedTransform = false
-        for segment in segments {
-            let asset = AVURLAsset(url: segment.url)
-            _ = try await asset.load(.tracks)
-            let assetDuration = try await asset.load(.duration)
-            var videoDuration = assetDuration
-            var audioDuration = assetDuration
-
-            let sourceVideo = try await asset.loadTracks(withMediaType: .video).first
-            let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
-
-            if let sourceVideo, let videoTrack {
-                videoDuration = try await sourceVideo.load(.timeRange).duration
-                if !appliedTransform {
-                    let transform = try await sourceVideo.load(.preferredTransform)
-                    videoTrack.preferredTransform = transform
-                    appliedTransform = true
-                }
-            }
-            if let sourceAudio {
-                audioDuration = try await sourceAudio.load(.timeRange).duration
-            }
-            let minDuration = CMTimeMinimum(videoDuration, audioDuration)
-            let segmentDuration =
-                minDuration.isValid && minDuration > .zero ? minDuration : assetDuration
-            let timeRange = CMTimeRange(start: .zero, duration: segmentDuration)
-            if let sourceVideo, let videoTrack {
-                try videoTrack.insertTimeRange(timeRange, of: sourceVideo, at: cursor)
-            }
-            if let sourceAudio, let audioTrack {
-                try audioTrack.insertTimeRange(timeRange, of: sourceAudio, at: cursor)
-            }
-            if assetDuration.isValid, segmentDuration.isValid {
-                let delta = CMTimeSubtract(assetDuration, segmentDuration)
-                let mismatchThreshold = CMTime(seconds: 0.02, preferredTimescale: 1_000)
-                if delta > mismatchThreshold {
-                    AppLog.debug(
-                        .capture, "Export: segment duration mismatch. asset:",
-                        assetDuration.seconds, "video:", videoDuration.seconds, "audio:",
-                        audioDuration.seconds)
-                }
-            }
-            cursor = cursor + segmentDuration
-        }
-
-        let totalSeconds = cursor.seconds
-        guard totalSeconds.isFinite, totalSeconds > 0 else {
-            throw CaptureError.noFramesCaptured
-        }
-        let clipSeconds = max(0, min(seconds, totalSeconds))
-        guard clipSeconds > 0 else {
-            throw CaptureError.noFramesCaptured
-        }
-        let timescale = cursor.timescale == 0 ? CMTimeScale(600) : cursor.timescale
-        let startTime = CMTime(
-            seconds: max(totalSeconds - clipSeconds, 0), preferredTimescale: timescale)
-        let timeRange = CMTimeRange(
-            start: startTime, duration: CMTime(seconds: clipSeconds, preferredTimescale: timescale))
-
-        let folder =
-            FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Rewind", isDirectory: true)
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent(
-                "Rewind", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let exportURL = folder.appendingPathComponent(
-            "Rewind_\(UUID().uuidString).\(container.fileExtension)")
-        try? FileManager.default.removeItem(at: exportURL)
-
-        do {
-            return try await exportWithPassthrough(
-                asset: composition,
-                timeRange: timeRange,
-                outputURL: exportURL,
-                container: container
-            )
-        } catch {
-            removeFiles([exportURL])
-            throw error
-        }
-    }
-
-    private func exportWithPassthrough(
-        asset: AVAsset,
-        timeRange: CMTimeRange,
-        outputURL: URL,
-        container: CaptureContainer
-    ) async throws -> URL {
-        guard
-            let exportSession = AVAssetExportSession(
-                asset: asset, presetName: AVAssetExportPresetPassthrough)
-        else {
-            throw CaptureError.exportFailed
-        }
-
-        guard exportSession.supportedFileTypes.contains(container.avFileType) else {
-            throw CaptureError.exportFailed
-        }
-
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = container.avFileType
-        exportSession.timeRange = timeRange
-        exportSession.shouldOptimizeForNetworkUse = false
-
-        let session = UncheckedSendable(exportSession)
-        return try await withCheckedThrowingContinuation { continuation in
-            session.value.exportAsynchronously {
-                switch session.value.status {
-                case .completed:
-                    continuation.resume(returning: outputURL)
-                case .failed, .cancelled:
-                    try? FileManager.default.removeItem(at: outputURL)
-                    continuation.resume(throwing: session.value.error ?? CaptureError.exportFailed)
-                default:
-                    try? FileManager.default.removeItem(at: outputURL)
-                    continuation.resume(throwing: CaptureError.exportFailed)
-                }
-            }
-        }
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 192_000,
+        ]
     }
 
     private func waitForFileReady(at url: URL) async throws {
@@ -413,10 +293,7 @@ actor CaptureManager {
     }
 
     private static func logError(_ label: String, _ error: Error) {
-        let nsError = error as NSError
-        AppLog.error(
-            .capture, label, "domain:", nsError.domain, "code:", nsError.code, "userInfo:",
-            nsError.userInfo)
+        AppLog.error(.capture, label, error: error)
     }
 
     private func startRotationLoop() {
@@ -476,6 +353,7 @@ actor CaptureManager {
         rotationTask = nil
         screenCapture.onVideoSampleBuffer = nil
         screenCapture.onAudioSampleBuffer = nil
+        screenCapture.onMicSampleBuffer = nil
         currentWriter = nil
         await screenCapture.stopCapture()
         if let url = try? await activeWriter.finishWriting() {

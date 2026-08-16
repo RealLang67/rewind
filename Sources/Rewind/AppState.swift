@@ -1,13 +1,18 @@
 import AppKit
 @preconcurrency import AVFoundation
+import Combine
+@preconcurrency import ScreenCaptureKit
 import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
-	private enum StorageWarning {
-		static let thresholdBytes: Int64 = 5 * 1024 * 1024 * 1024
-		static let refreshIntervalNanos: UInt64 = 30 * 1_000_000_000
-	}
+	static let supportsMicrophoneCapture = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+		OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+	)
+
+	static let supportsCaptureTargetPrompt = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+		OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0)
+	)
 
 	@Published private(set) var isCapturing = false
 	@Published var replayDuration: TimeInterval = 30 {
@@ -26,6 +31,26 @@ final class AppState: ObservableObject {
 	}
 
 	@Published private(set) var lastClip: Clip?
+
+	@Published var clipToOpen: Clip?
+
+	/// Login-item state lives in the system (via `SMAppService`), not in app
+	/// settings, so this is initialized from and written straight to that store.
+	@Published var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard launchAtLoginEnabled != oldValue else { return }
+			do {
+				try LaunchAtLogin.setEnabled(launchAtLoginEnabled)
+			} catch {
+				AppLog.error(.app, "Failed to update launch at login:", error)
+				isRestoringSettings = true
+				launchAtLoginEnabled = oldValue
+				isRestoringSettings = false
+			}
+		}
+	}
+
 	@Published private(set) var permissionState = PermissionState()
 	@Published private(set) var availableResolutions: [CaptureResolution] = []
 	@Published private(set) var isLoadingResolutions = false
@@ -35,6 +60,21 @@ final class AppState: ObservableObject {
 			guard !isRestoringSettings else { return }
 			guard selectedResolution != oldValue else { return }
 			preferredResolutionID = selectedResolution?.id
+			if oldValue == nil {
+				restartCaptureSilently()
+				return
+			}
+			persistSettings()
+			restartCaptureSilently()
+		}
+	}
+
+	@Published private(set) var availableMicrophones: [MicrophoneDevice] = []
+	/// nil = system default input
+	@Published var selectedMicrophoneDeviceID: String? {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard selectedMicrophoneDeviceID != oldValue else { return }
 			persistSettings()
 			restartCaptureSilently()
 		}
@@ -99,7 +139,7 @@ final class AppState: ObservableObject {
 			guard alwaysRecordEnabled != oldValue else { return }
 			persistSettings()
 			if alwaysRecordEnabled {
-				startCapture()
+				startCapture(reason: .alwaysRecord)
 			}
 		}
 	}
@@ -132,8 +172,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard saveFeedbackSound != oldValue else { return }
-			replaySavedSound = nil
-			replaySavedBoostSound = nil
+			soundFeedback.invalidate(.saved)
 			persistSettings()
 		}
 	}
@@ -166,8 +205,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard recordingStartFeedbackSound != oldValue else { return }
-			recordingStartSound = nil
-			recordingStartBoostSound = nil
+			soundFeedback.invalidate(.recordingStart)
 			persistSettings()
 		}
 	}
@@ -200,8 +238,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard recordingEndFeedbackSound != oldValue else { return }
-			recordingEndSound = nil
-			recordingEndBoostSound = nil
+			soundFeedback.invalidate(.recordingEnd)
 			persistSettings()
 		}
 	}
@@ -235,8 +272,7 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard errorFeedbackSound != oldValue else { return }
-			errorSound = nil
-			errorBoostSound = nil
+			soundFeedback.invalidate(.error)
 			persistSettings()
 			playErrorFeedback()
 		}
@@ -251,6 +287,12 @@ final class AppState: ObservableObject {
 				await discordRPCClient.setEnabled(discordRPCEnabled)
 				if discordRPCEnabled {
 					self.publishDiscordPresenceWithRetry(for: self.discordActivityState)
+					// The poller exits as soon as it observes discordRPCEnabled == false
+					// (see startGamePresenceUpdates), so re-enabling mid-recording must
+					// restart it explicitly or presence stays frozen on the stale game.
+					if self.isCapturing, self.discordActivityState.isRecording, self.gamePresenceTask == nil {
+						self.startGamePresenceUpdates()
+					}
 				} else {
 					discordPresenceRetryTask?.cancel()
 					discordPresenceRetryTask = nil
@@ -259,10 +301,67 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	@Published var useBFrames = AppSettings.default.useBFrames {
+	@Published var shareGamePresenceEnabled = AppSettings.default.shareGamePresenceEnabled {
 		didSet {
 			guard !isRestoringSettings else { return }
-			guard useBFrames != oldValue else { return }
+			guard shareGamePresenceEnabled != oldValue else { return }
+			persistSettings()
+			refreshGamePresenceIfRecording()
+		}
+	}
+
+	@Published var shareRobloxExperienceEnabled = AppSettings.default.shareRobloxExperienceEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard shareRobloxExperienceEnabled != oldValue else { return }
+			persistSettings()
+			refreshGamePresenceIfRecording()
+		}
+	}
+
+	@Published var recordMicrophoneEnabled = AppSettings.default.recordMicrophoneEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard recordMicrophoneEnabled != oldValue else { return }
+
+			if recordMicrophoneEnabled, !Self.supportsMicrophoneCapture {
+				recordMicrophoneEnabled = false
+				return
+			}
+
+			persistSettings()
+
+			if recordMicrophoneEnabled {
+				Task {
+					do {
+						try await PermissionManager.ensureMicrophoneAccess()
+						permissionState = PermissionManager.currentState()
+					} catch {
+						AppLog.error(.app, "Microphone access denied:", error)
+						recordMicrophoneEnabled = false
+					}
+					restartCaptureSilently()
+				}
+			} else {
+				restartCaptureSilently()
+			}
+		}
+	}
+
+	@Published var recordDesktopAudioEnabled = AppSettings.default.recordDesktopAudioEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard recordDesktopAudioEnabled != oldValue else { return }
+			persistSettings()
+			restartCaptureSilently()
+		}
+	}
+
+	/// only affects the next manual start's picker prompt, so no capture restart here
+	@Published var captureTargetPromptEnabled = AppSettings.default.captureTargetPromptEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard captureTargetPromptEnabled != oldValue else { return }
 			persistSettings()
 		}
 	}
@@ -276,37 +375,124 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var analyticsEnabled = AppSettings.default.analyticsEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard analyticsEnabled != oldValue else { return }
+			persistSettings()
+			let enabled = analyticsEnabled
+			Task { await analytics.setEnabled(enabled) }
+		}
+	}
+
+	/// opt-in to the sparkle `beta` channel
+	@Published var betaUpdatesEnabled = AppSettings.default.betaUpdatesEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard betaUpdatesEnabled != oldValue else { return }
+			persistSettings()
+		}
+	}
+
+	@Published var enabledUploadProviderIDs = AppSettings.default.enabledUploadProviderIDs {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard enabledUploadProviderIDs != oldValue else { return }
+			persistSettings()
+		}
+	}
+
+	/// Enabled hosts in catalog order, which is the order the share menu uses.
+	var enabledUploadProviders: [ClipUploadProvider] {
+		ClipUploadProvider.providers.filter { enabledUploadProviderIDs.contains($0.id) }
+	}
+
+	func isUploadProviderEnabled(_ provider: ClipUploadProvider) -> Bool {
+		enabledUploadProviderIDs.contains(provider.id)
+	}
+
+	func setUploadProvider(_ provider: ClipUploadProvider, enabled: Bool) {
+		if enabled {
+			guard !enabledUploadProviderIDs.contains(provider.id) else { return }
+			enabledUploadProviderIDs.append(provider.id)
+		} else {
+			enabledUploadProviderIDs.removeAll { $0 == provider.id }
+		}
+	}
+
+	@Published var outputDirectoryPath: String? {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard outputDirectoryPath != oldValue else { return }
+			persistSettings()
+			// a new folder may be on a different volume, so re-evaluate now
+			refreshStorageWarning()
+		}
+	}
+
 	@Published private(set) var lowStorageWarningMessage: String?
+	@Published private(set) var isAsleep = false
+
+	var isDisplayOrSystemAsleep: Bool {
+		isAsleep || CGDisplayIsAsleep(CGMainDisplayID()) != 0
+	}
 
 	private let captureManager: CaptureManager
 	let clipLibrary: ClipLibrary
 	private let discordRPCClient: DiscordRPCClient
+	private let analytics: any AnalyticsTracking
 	private let hotkeyManager: GlobalHotkeyManager
-	private var replaySavedSound: NSSound?
-	private var replaySavedBoostSound: NSSound?
-	private var recordingStartSound: NSSound?
-	private var recordingStartBoostSound: NSSound?
-	private var recordingEndSound: NSSound?
-	private var recordingEndBoostSound: NSSound?
-	private var errorSound: NSSound?
-	private var errorBoostSound: NSSound?
+	private let soundFeedback = SoundFeedbackController()
+	private var storageMonitor: StorageMonitor!
 	private var discordActivityState: DiscordActivityState = .idle
 	private var discordPresenceRetryTask: Task<Void, Never>?
-	private var storageMonitorTask: Task<Void, Never>?
+	private let dotaGSIServer: DotaGSIServer?
+	private let gameDetector: GamePresenceDetector
+	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
+	/// Keeps the system content picker alive while it is presented (it is only an
+	/// observer, so it must be retained). Created lazily on macOS 14+.
+	private var contentPicker: Any?
+	/// The most recent content selection, reused for silent restarts and automatic
+	/// retries so the user is not re-prompted mid-session.
+	private var lastContentFilter: UncheckedSendable<SCContentFilter>?
+	/// Consecutive automatic-restart failures with the current `lastContentFilter`.
+	/// If the picked window/app/display has gone away, every retry fails identically
+	/// forever; once this crosses the threshold we drop the stale filter so the next
+	/// attempt falls back to full-display capture instead of looping forever.
+	private var automaticRestartFailureCount = 0
+	private static let maxAutomaticRestartFailuresBeforeFallback = 3
+	private var awaitingScreenGrant = false
+	private var screenGrantPollTask: Task<Void, Never>?
 	private var preferredResolutionID: String?
 	private var isRestoringSettings = false
+	private var cancellables = Set<AnyCancellable>()
 
 	init(
 		captureManager: CaptureManager = CaptureManager(),
 		clipLibrary: ClipLibrary = ClipLibrary(),
 		discordRPCClient: DiscordRPCClient = DiscordRPCClient(),
+		analytics: any AnalyticsTracking = NoopAnalytics(),
 		hotkeyManager: GlobalHotkeyManager = .shared
 	) {
 		self.captureManager = captureManager
 		self.clipLibrary = clipLibrary
 		self.discordRPCClient = discordRPCClient
+		self.analytics = analytics
 		self.hotkeyManager = hotkeyManager
+
+		let dotaGSIAuthToken = UUID().uuidString
+		let dotaGSIServer = DotaGSIServer(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
+		self.dotaGSIServer = dotaGSIServer
+		gameDetector = GamePresenceDetector(dotaGSI: dotaGSIServer)
+		dotaGSIServer?.start()
+		Task.detached(priority: .utility) {
+			DotaGSIConfigInstaller.install(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
+		}
+
+		clipLibrary.objectWillChange.sink { [weak self] _ in
+			self?.objectWillChange.send()
+		}.store(in: &cancellables)
 
 		permissionState = PermissionManager.currentState()
 		let settings = AppSettingsStorage.load()
@@ -333,9 +519,19 @@ final class AppState: ObservableObject {
 		errorFeedbackVolume = settings.errorFeedbackVolume
 		errorFeedbackSound = settings.errorFeedbackSound
 		discordRPCEnabled = settings.discordRPCEnabled
-		useBFrames = settings.useBFrames
+		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
+		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
 		fileLoggingEnabled = settings.fileLoggingEnabled
+		analyticsEnabled = settings.analyticsEnabled
+		betaUpdatesEnabled = settings.betaUpdatesEnabled
+		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
+		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
+		selectedMicrophoneDeviceID = settings.microphoneDeviceID
+		outputDirectoryPath = settings.outputDirectoryPath
 		isRestoringSettings = false
+		refreshMicrophones()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
 			await self?.captureManager.setOnCaptureInterruptedHandler { [weak self] error in
@@ -343,20 +539,86 @@ final class AppState: ObservableObject {
 			}
 		}
 		Task { await loadAvailableResolutions() }
-		startStorageMonitor()
+		storageMonitor = StorageMonitor { [weak self] message in
+			guard let self else { return }
+			let warningWasVisible = lowStorageWarningMessage != nil
+			lowStorageWarningMessage = message
+			if !warningWasVisible, message != nil {
+				Task { await analytics.lowStorageWarningShown() }
+			}
+		}
+		storageMonitor.start()
 		Task {
 			await discordRPCClient.setEnabled(discordRPCEnabled)
 			self.publishDiscordPresenceWithRetry(for: self.discordActivityState)
 		}
 	}
 
+	func resetToDefaults() {
+		let settings = AppSettings.default
+		let wasAlwaysRecording = alwaysRecordEnabled
+
+		isRestoringSettings = true
+		replayDuration = settings.replayDuration
+		selectedQuality = settings.qualityPreset
+		selectedFrameRate = settings.frameRateOption
+		selectedContainer = settings.container
+		selectedAudioCodec = settings.audioCodec
+		preferredResolutionID = settings.resolutionID
+		selectedResolution = availableResolutions.first(where: { $0.isNative })
+			?? availableResolutions.first
+		hotkey = settings.hotkey
+		startRecordingHotkey = settings.startRecordingHotkey
+		alwaysRecordEnabled = settings.alwaysRecordEnabled
+		saveFeedbackEnabled = settings.saveFeedbackEnabled
+		saveFeedbackVolume = settings.saveFeedbackVolume
+		saveFeedbackSound = settings.saveFeedbackSound
+		recordingStartFeedbackEnabled = settings.recordingStartFeedbackEnabled
+		recordingStartFeedbackVolume = settings.recordingStartFeedbackVolume
+		recordingStartFeedbackSound = settings.recordingStartFeedbackSound
+		recordingEndFeedbackEnabled = settings.recordingEndFeedbackEnabled
+		recordingEndFeedbackVolume = settings.recordingEndFeedbackVolume
+		recordingEndFeedbackSound = settings.recordingEndFeedbackSound
+		errorFeedbackEnabled = settings.errorFeedbackEnabled
+		errorFeedbackVolume = settings.errorFeedbackVolume
+		errorFeedbackSound = settings.errorFeedbackSound
+		discordRPCEnabled = settings.discordRPCEnabled
+		shareGamePresenceEnabled = settings.shareGamePresenceEnabled
+		shareRobloxExperienceEnabled = settings.shareRobloxExperienceEnabled
+		fileLoggingEnabled = settings.fileLoggingEnabled
+		analyticsEnabled = settings.analyticsEnabled
+		betaUpdatesEnabled = settings.betaUpdatesEnabled
+		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
+		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
+		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
+		selectedMicrophoneDeviceID = settings.microphoneDeviceID
+		outputDirectoryPath = settings.outputDirectoryPath
+		isRestoringSettings = false
+
+		persistSettings()
+		AppLog.fileLoggingEnabled = fileLoggingEnabled
+		let shouldEnableAnalytics = analyticsEnabled
+		Task { await analytics.setEnabled(shouldEnableAnalytics) }
+		updateGlobalHotkeys()
+		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
+		if wasAlwaysRecording, !alwaysRecordEnabled, isCapturing {
+			Task { await stopCaptureAsync() }
+		} else {
+			restartCaptureSilently()
+		}
+	}
+
 	func startCapture(isAutomatic: Bool = false) {
-		Task { await startCaptureAsync(isAutomatic: isAutomatic) }
+		startCapture(reason: isAutomatic ? .retry : .manual)
 	}
 
 	func startAlwaysRecording(isAutomatic: Bool = true) {
 		guard alwaysRecordEnabled else { return }
-		startCapture(isAutomatic: isAutomatic)
+		if isDisplayOrSystemAsleep {
+			return
+		}
+		startCapture(reason: isAutomatic ? .alwaysRecord : .manual)
 	}
 
 	func stopCapture() {
@@ -366,6 +628,15 @@ final class AppState: ObservableObject {
 
 	func saveReplay() {
 		Task { await saveReplayAsync() }
+	}
+
+	func trackAppOpened() {
+		let settings = analyticsSettingsSnapshot
+		Task { await analytics.appOpened(settings: settings) }
+	}
+
+	func trackClipAction(action: String, result: String = "success", provider: String? = nil) {
+		Task { await analytics.clipAction(action: action, result: result, provider: provider) }
 	}
 
 	func toggleCapture() {
@@ -381,8 +652,48 @@ final class AppState: ObservableObject {
 		Task { await refreshPermissionsAsync() }
 	}
 
+	/// Opens the Screen Recording settings pane and watches for the grant, then
+	/// relaunches automatically so the user never has to quit and reopen the app.
+	func requestScreenRecordingAccess() {
+		PermissionManager.openSystemSettings()
+		awaitingScreenGrant = true
+		screenGrantPollTask?.cancel()
+		screenGrantPollTask = Task { @MainActor [weak self] in
+			// Back up the app-becomes-active refresh in case the user grants
+			// while Rewind is still frontmost. Give up after a few minutes.
+			for _ in 0 ..< 200 {
+				try? await Task.sleep(nanoseconds: 1_500_000_000)
+				guard let self, self.awaitingScreenGrant else { return }
+				if PermissionManager.currentState().screenRecording {
+					self.relaunchForScreenGrant()
+					return
+				}
+			}
+		}
+	}
+
+	private func relaunchForScreenGrant() {
+		guard awaitingScreenGrant else { return }
+		awaitingScreenGrant = false
+		screenGrantPollTask?.cancel()
+		screenGrantPollTask = nil
+		PermissionManager.relaunch()
+	}
+
 	func refreshResolutions() {
 		Task { await loadAvailableResolutions() }
+	}
+
+	/// enumeration is instant, so this stays synchronous unlike resolutions.
+	/// a selected-but-now-disconnected mic reconciles back to the system default.
+	func refreshMicrophones() {
+		let devices = MicrophoneDeviceProvider.availableDevices()
+		availableMicrophones = devices
+		if let selected = selectedMicrophoneDeviceID,
+		   !devices.contains(where: { $0.id == selected })
+		{
+			selectedMicrophoneDeviceID = nil
+		}
 	}
 
 	private func loadAvailableResolutions() async {
@@ -435,30 +746,85 @@ final class AppState: ObservableObject {
 		AppLog.error(.app, "Resolutions did not load after multiple tries")
 	}
 
-	private func startCaptureAsync(isAutomatic: Bool = false) async {
+	private func startCapture(reason: AnalyticsCaptureStartReason) {
+		Task { await startCaptureAsync(reason: reason) }
+	}
+
+	private func startCaptureAsync(reason: AnalyticsCaptureStartReason) async {
+		let isAutomatic = reason != .manual
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		if !isAutomatic {
 			automaticCaptureRetryTask?.cancel()
 		}
 		do {
 			try await PermissionManager.ensureScreenAccess()
 			permissionState = PermissionManager.currentState()
+
+			// On a manual start, let the user choose what to capture. Automatic
+			// starts (retries) silently reuse the last selection so recording can
+			// resume without interrupting the user.
+			let contentFilter: UncheckedSendable<SCContentFilter>?
+			if isAutomatic {
+				contentFilter = lastContentFilter
+			} else if captureTargetPromptEnabled, #available(macOS 14.0, *) {
+				do {
+					contentFilter = try await presentContentPicker()
+					lastContentFilter = contentFilter
+				} catch is ContentSharingPicker.Cancelled {
+					// User dismissed the picker; abort the start without an error.
+					return
+				}
+			} else {
+				contentFilter = nil
+			}
+
 			try await captureManager.start(
+				contentFilter: contentFilter,
 				resolution: selectedResolution,
 				quality: selectedQuality,
 				frameRate: selectedFrameRate.framesPerSecond,
 				audioCodec: selectedAudioCodec,
-				useBFrames: useBFrames
+				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				microphoneDeviceID: selectedMicrophoneDeviceID
 			)
 			isCapturing = true
-			updateDiscordActivity(.recording)
-			playRecordingStartFeedback()
+			let settings = analyticsSettingsSnapshot
+			Task { await analytics.captureSessionStarted(reason: reason, settings: settings) }
+			automaticRestartFailureCount = 0
+			updateDiscordActivity(.recording(game: nil, joinURL: nil, artURL: nil))
+			if !isAutomatic {
+				playRecordingStartFeedback()
+			}
 			automaticCaptureRetryTask?.cancel()
 		} catch {
 			isCapturing = false
 			updateDiscordActivity(.idle)
+			let category = analyticsErrorCategory(error)
+			Task {
+				await analytics.captureStartFailed(
+					reason: reason,
+					category: category,
+					retrying: isAutomatic
+				)
+			}
 
 			if isAutomatic {
+				if isDisplayOrSystemAsleep {
+					return
+				}
 				AppLog.error(.app, "Automatic capture start failed", error)
+				automaticRestartFailureCount += 1
+				if automaticRestartFailureCount >= Self.maxAutomaticRestartFailuresBeforeFallback {
+					AppLog.error(
+						.app,
+						"Automatic capture repeatedly failed with the previous capture target; falling back to full-display capture."
+					)
+					lastContentFilter = nil
+					automaticRestartFailureCount = 0
+				}
 				scheduleCaptureRetry()
 				return
 			}
@@ -477,25 +843,44 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	private func stopCaptureAsync() async {
+	private func stopCaptureAsync(reason: AnalyticsCaptureEndReason = .manual) async {
 		automaticCaptureRetryTask?.cancel()
 		await captureManager.stop()
 		isCapturing = false
+		Task { await analytics.captureSessionEnded(reason: reason) }
 		updateDiscordActivity(.idle)
-		playRecordingEndFeedback()
+		if reason == .manual {
+			playRecordingEndFeedback()
+		}
+	}
+
+	/// Presents the macOS content picker and returns the chosen filter, boxed so it
+	/// can cross into the capture actor. Retains the picker for the presentation.
+	@available(macOS 14.0, *)
+	private func presentContentPicker() async throws -> UncheckedSendable<SCContentFilter> {
+		let picker = ContentSharingPicker()
+		contentPicker = picker
+		defer { contentPicker = nil }
+		return try await picker.pick()
 	}
 
 	private func restartCaptureSilently() {
 		guard isCapturing else { return }
+		if isDisplayOrSystemAsleep {
+			return
+		}
 		Task {
 			await captureManager.stop()
 			do {
 				try await captureManager.start(
+					contentFilter: lastContentFilter,
 					resolution: selectedResolution,
 					quality: selectedQuality,
 					frameRate: selectedFrameRate.framesPerSecond,
 					audioCodec: selectedAudioCodec,
-					useBFrames: useBFrames
+					recordMicrophoneEnabled: recordMicrophoneEnabled,
+					recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+					microphoneDeviceID: selectedMicrophoneDeviceID
 				)
 			} catch {
 				isCapturing = false
@@ -506,7 +891,24 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	/// Clears `lastClip` if it points at a clip that was just deleted, so
+	/// "Open Last Clip" doesn't stay enabled and try to open a missing file.
+	func clipWasDeleted(_ clip: Clip) {
+		if lastClip?.id == clip.id {
+			lastClip = nil
+		}
+	}
+
 	private func saveReplayAsync() async {
+		let requestedDuration = replayDuration
+		let requestedContainerID = selectedContainer.id
+		let startedAt = Date()
+		Task {
+			await analytics.replaySaveRequested(
+				duration: requestedDuration,
+				containerID: requestedContainerID
+			)
+		}
 		do {
 			let url = try await captureManager.saveReplay(
 				seconds: replayDuration, container: selectedContainer
@@ -514,18 +916,64 @@ final class AppState: ObservableObject {
 			let clipDuration = try await resolvedClipDuration(for: url)
 			let clip = try await clipLibrary.addClip(url: url, duration: clipDuration)
 			lastClip = clip
+			let processingMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+			Task {
+				await analytics.replaySaved(
+					duration: requestedDuration,
+					containerID: requestedContainerID,
+					processingMilliseconds: processingMilliseconds
+				)
+			}
 			playReplaySavedFeedback()
 			refreshStorageWarning()
 		} catch {
 			AppLog.error(.app, "Save replay failed:", error)
+			let category = analyticsErrorCategory(error)
+			Task { await analytics.replaySaveFailed(category: category) }
 			playErrorFeedback()
 		}
 	}
 
 	private func updateDiscordActivity(_ state: DiscordActivityState) {
-		guard discordActivityState != state else { return }
+		let previous = discordActivityState
+		guard previous != state else { return }
 		discordActivityState = state
 		publishDiscordPresenceWithRetry(for: state)
+
+		// Only manage the game poller on the idle<->recording transition, not
+		// when the poller itself refines the game name (recording -> recording).
+		if state.isRecording, !previous.isRecording {
+			startGamePresenceUpdates()
+		} else if !state.isRecording, previous.isRecording {
+			gamePresenceTask?.cancel()
+			gamePresenceTask = nil
+		}
+	}
+
+	/// While recording, periodically look up the game being played and fold it
+	/// into the Discord presence so it reads "Clipping <game>".
+	private func startGamePresenceUpdates() {
+		gamePresenceTask?.cancel()
+		gamePresenceTask = Task { @MainActor [weak self] in
+			while !Task.isCancelled {
+				guard let self, self.isCapturing, self.discordRPCEnabled,
+				      self.discordActivityState.isRecording else { return }
+				// Respect the privacy toggle: when game sharing is off, show only a
+				// generic recording status instead of resolving the running game.
+				let presence = self.shareGamePresenceEnabled
+					? await self.gameDetector.currentGame(enrichRoblox: self.shareRobloxExperienceEnabled)
+					: nil
+				if self.discordActivityState.isRecording {
+					self.updateDiscordActivity(.recording(game: presence?.name, joinURL: presence?.joinURL, artURL: presence?.artURL))
+				}
+				try? await Task.sleep(nanoseconds: 10_000_000_000)
+			}
+		}
+	}
+
+	private func refreshGamePresenceIfRecording() {
+		guard isCapturing, discordRPCEnabled, discordActivityState.isRecording else { return }
+		startGamePresenceUpdates()
 	}
 
 	private func publishDiscordPresenceWithRetry(for state: DiscordActivityState) {
@@ -544,122 +992,44 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	private func playFeedback(
-		enabled: Bool,
-		volume: Double,
-		sound: FeedbackSound,
-		defaultSoundName: String,
-		cachedSound: NSSound?,
-		cachedBoostSound: NSSound?,
-		updateCache: (NSSound?, NSSound?) -> Void
-	) {
-		guard enabled else { return }
-
-		let soundName = sound.id == "default" ? defaultSoundName : sound.systemSoundName
-
-		let primary: NSSound
-		if let cached = cachedSound {
-			primary = cached
-		} else {
-			if let newSound = NSSound(named: NSSound.Name(soundName)) {
-				primary = newSound
-			} else {
-				let sourceFileURL = URL(fileURLWithPath: #filePath)
-				let rootURL = sourceFileURL.deletingLastPathComponent().deletingLastPathComponent()
-					.deletingLastPathComponent()
-				let devURL = rootURL.appendingPathComponent("Resources/Sounds/\(soundName).wav")
-				if let newSound = NSSound(contentsOf: devURL, byReference: true) {
-					primary = newSound
-				} else {
-					let rootDevURL = rootURL.appendingPathComponent("Resources/\(soundName).wav")
-					if let newSound = NSSound(contentsOf: rootDevURL, byReference: true) {
-						primary = newSound
-					} else {
-						return
-					}
-				}
-			}
-		}
-
-		let boost: NSSound?
-		if let cachedBoost = cachedBoostSound {
-			boost = cachedBoost
-		} else {
-			boost = primary.copy() as? NSSound
-		}
-
-		updateCache(primary, boost)
-
-		let normalizedVolume = volume / 100
-		let primaryVolume = Float(min(1, normalizedVolume * 1.25))
-		let boostMix = max(0, normalizedVolume - 0.55) / 0.45
-		let boostVolume = Float(min(1, boostMix * 0.9))
-
-		primary.stop()
-		primary.volume = primaryVolume
-		primary.play()
-
-		if boostVolume > 0, let boost = boost {
-			boost.stop()
-			boost.volume = boostVolume
-			boost.play()
-		}
-	}
-
 	func playReplaySavedFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.saved,
 			enabled: saveFeedbackEnabled,
 			volume: saveFeedbackVolume,
 			sound: saveFeedbackSound,
-			defaultSoundName: "save",
-			cachedSound: replaySavedSound,
-			cachedBoostSound: replaySavedBoostSound
-		) { [weak self] primary, boost in
-			self?.replaySavedSound = primary
-			self?.replaySavedBoostSound = boost
-		}
+			defaultSoundName: "save"
+		)
 	}
 
 	func playRecordingStartFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.recordingStart,
 			enabled: recordingStartFeedbackEnabled,
 			volume: recordingStartFeedbackVolume,
 			sound: recordingStartFeedbackSound,
-			defaultSoundName: "start",
-			cachedSound: recordingStartSound,
-			cachedBoostSound: recordingStartBoostSound
-		) { [weak self] primary, boost in
-			self?.recordingStartSound = primary
-			self?.recordingStartBoostSound = boost
-		}
+			defaultSoundName: "start"
+		)
 	}
 
 	func playRecordingEndFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.recordingEnd,
 			enabled: recordingEndFeedbackEnabled,
 			volume: recordingEndFeedbackVolume,
 			sound: recordingEndFeedbackSound,
-			defaultSoundName: "end",
-			cachedSound: recordingEndSound,
-			cachedBoostSound: recordingEndBoostSound
-		) { [weak self] primary, boost in
-			self?.recordingEndSound = primary
-			self?.recordingEndBoostSound = boost
-		}
+			defaultSoundName: "end"
+		)
 	}
 
 	func playErrorFeedback() {
-		playFeedback(
+		soundFeedback.play(
+			.error,
 			enabled: errorFeedbackEnabled,
 			volume: errorFeedbackVolume,
 			sound: errorFeedbackSound,
-			defaultSoundName: "error",
-			cachedSound: errorSound,
-			cachedBoostSound: errorBoostSound
-		) { [weak self] primary, boost in
-			self?.errorSound = primary
-			self?.errorBoostSound = boost
-		}
+			defaultSoundName: "error"
+		)
 	}
 
 	private func resolvedClipDuration(for url: URL) async throws -> TimeInterval {
@@ -679,13 +1049,53 @@ final class AppState: ObservableObject {
 
 	private func refreshPermissionsAsync() async {
 		permissionState = PermissionManager.currentState()
+		// If the user just granted Screen Recording (typically detected when the
+		// app becomes active again), relaunch to apply it.
+		if awaitingScreenGrant, permissionState.screenRecording {
+			relaunchForScreenGrant()
+		}
+	}
+
+	func handleSleep() {
+		guard !isAsleep else { return }
+		AppLog.info(.app, "System going to sleep")
+		isAsleep = true
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
+		if isCapturing {
+			Task {
+				await captureManager.stop()
+				isCapturing = false
+				await analytics.captureSessionEnded(reason: .sleep)
+				updateDiscordActivity(.idle)
+			}
+		}
+	}
+
+	func handleWake() {
+		guard isAsleep else { return }
+		AppLog.info(.app, "System waking up")
+		isAsleep = false
+		if alwaysRecordEnabled, !isDisplayOrSystemAsleep {
+			startCapture(reason: .wake)
+		}
 	}
 
 	private func handleCaptureInterrupted(_ error: Error) {
 		isCapturing = false
 		updateDiscordActivity(.idle)
-		playErrorFeedback()
+		if isDisplayOrSystemAsleep {
+			return
+		}
+		if !alwaysRecordEnabled {
+			playErrorFeedback()
+		}
 		AppLog.error(.app, "Capture interrupted:", error)
+		let category = analyticsErrorCategory(error)
+		Task {
+			await analytics.captureInterrupted(category: category, retrying: true)
+			await analytics.captureSessionEnded(reason: .interrupted)
+		}
 		scheduleCaptureRetry()
 	}
 
@@ -695,10 +1105,69 @@ final class AppState: ObservableObject {
 			guard let self else { return }
 			try? await Task.sleep(nanoseconds: 2_000_000_000)
 			if Task.isCancelled { return }
+			if self.isDisplayOrSystemAsleep {
+				return
+			}
 			if !self.isCapturing {
-				self.startCapture(isAutomatic: true)
+				self.startCapture(reason: .retry)
 			}
 		}
+	}
+
+	private var analyticsSettingsSnapshot: AnalyticsSettingsSnapshot {
+		AnalyticsSettingsSnapshot(
+			replayDurationBucket: PostHogAnalytics.durationBucket(for: replayDuration),
+			resolution: selectedResolution?.id ?? preferredResolutionID ?? "unknown",
+			quality: selectedQuality.id,
+			frameRate: selectedFrameRate.framesPerSecond,
+			container: selectedContainer.id,
+			audioCodec: selectedAudioCodec.id,
+			alwaysRecordEnabled: alwaysRecordEnabled,
+			microphoneEnabled: recordMicrophoneEnabled,
+			desktopAudioEnabled: recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: captureTargetPromptEnabled,
+			discordRPCEnabled: discordRPCEnabled,
+			gamePresenceEnabled: shareGamePresenceEnabled,
+			robloxExperienceEnabled: shareRobloxExperienceEnabled,
+			// Kept as two booleans so the existing analytics schema stays intact,
+			// even though uploads are now a list of providers.
+			catboxEnabled: enabledUploadProviderIDs.contains(ClipUploadProvider.catboxID),
+			litterboxEnabled: enabledUploadProviderIDs.contains(ClipUploadProvider.litterboxID),
+			launchAtLoginEnabled: launchAtLoginEnabled,
+			betaUpdatesEnabled: betaUpdatesEnabled,
+			customOutputDirectory: outputDirectoryPath != nil
+		)
+	}
+
+	private func analyticsErrorCategory(_ error: Error) -> String {
+		if let captureError = error as? CaptureError {
+			switch captureError {
+			case .noDisplay:
+				return "no_display"
+			case .noAudioDevice:
+				return "no_audio_device"
+			case .writerUnavailable:
+				return "writer_unavailable"
+			case .noFramesCaptured:
+				return "no_frames"
+			case .exportFailed:
+				return "export_failed"
+			case .saveInProgress:
+				return "save_in_progress"
+			case .invalidDuration:
+				return "invalid_duration"
+			case .writerFinishTimedOut:
+				return "writer_timeout"
+			case let .streamStopped(reason):
+				// Split these apart deliberately. A stop with no error at all is the
+				// signature of the macOS 14.7–15.3 ScreenCaptureKit bug, so counting
+				// it separately shows how often that fires in the wild. Only the
+				// fixed category is reported, never the reason text.
+				return reason == nil ? "stream_stopped_null_error" : "stream_stopped"
+			}
+		}
+
+		return "unknown"
 	}
 
 	private func updateGlobalHotkeys() {
@@ -733,67 +1202,25 @@ final class AppState: ObservableObject {
 				errorFeedbackVolume: errorFeedbackVolume,
 				errorFeedbackSoundID: errorFeedbackSound.id,
 				discordRPCEnabled: discordRPCEnabled,
-				useBFrames: useBFrames,
-				fileLoggingEnabled: fileLoggingEnabled
+				shareGamePresenceEnabled: shareGamePresenceEnabled,
+				shareRobloxExperienceEnabled: shareRobloxExperienceEnabled,
+				fileLoggingEnabled: fileLoggingEnabled,
+				analyticsEnabled: analyticsEnabled,
+
+				betaUpdatesEnabled: betaUpdatesEnabled,
+				enabledUploadProviderIDs: enabledUploadProviderIDs,
+				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				captureTargetPromptEnabled: captureTargetPromptEnabled,
+				microphoneDeviceID: selectedMicrophoneDeviceID,
+				outputDirectoryPath: outputDirectoryPath
 			)
 		)
-	}
-
-	private func startStorageMonitor() {
-		refreshStorageWarning()
-		storageMonitorTask?.cancel()
-		storageMonitorTask = Task { [weak self] in
-			while !Task.isCancelled {
-				try? await Task.sleep(nanoseconds: StorageWarning.refreshIntervalNanos)
-				if Task.isCancelled { break }
-				self?.refreshStorageWarning()
-			}
-		}
+		let settings = analyticsSettingsSnapshot
+		Task { await analytics.settingsUpdated(settings) }
 	}
 
 	private func refreshStorageWarning() {
-		guard let freeBytes = availableStorageBytes() else {
-			lowStorageWarningMessage = nil
-			return
-		}
-
-		if freeBytes < StorageWarning.thresholdBytes {
-			lowStorageWarningMessage = "Low disk space: \(formattedStorage(freeBytes)) left."
-		} else {
-			lowStorageWarningMessage = nil
-		}
-	}
-
-	private func availableStorageBytes() -> Int64? {
-		let fileManager = FileManager.default
-		let targetURL =
-			fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first
-				?? fileManager.homeDirectoryForCurrentUser
-
-		if let resourceValues = try? targetURL.resourceValues(forKeys: [
-			.volumeAvailableCapacityForImportantUsageKey,
-			.volumeAvailableCapacityKey,
-		]) {
-			if let availableForImportantUsage = resourceValues
-				.volumeAvailableCapacityForImportantUsage
-			{
-				return availableForImportantUsage
-			}
-			if let availableCapacity = resourceValues.volumeAvailableCapacity {
-				return Int64(availableCapacity)
-			}
-		}
-
-		if let attributes = try? fileManager.attributesOfFileSystem(forPath: targetURL.path),
-		   let freeSize = attributes[.systemFreeSize] as? NSNumber
-		{
-			return freeSize.int64Value
-		}
-
-		return nil
-	}
-
-	private func formattedStorage(_ bytes: Int64) -> String {
-		ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+		storageMonitor.refresh()
 	}
 }

@@ -7,6 +7,8 @@ struct Clip: Identifiable, Codable {
 	let duration: TimeInterval
 	var tags: [String]
 
+	var isFavorite: Bool { tags.contains("favorite") }
+
 	init(id: UUID, url: URL, createdAt: Date, duration: TimeInterval, tags: [String] = []) {
 		self.id = id
 		self.url = url

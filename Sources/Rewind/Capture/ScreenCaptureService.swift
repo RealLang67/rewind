@@ -1,14 +1,16 @@
 import AVFoundation
 import CoreGraphics
+import RewindObjCSupport
 @preconcurrency import ScreenCaptureKit
 
 /// this type is used across CaptureManager actor isolation and ScreenCaptureKit callback queues
 /// callback handlers and cross queue debug flags are lock protected and blah blah too complicated
-final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable {
 	private let callbackLock = NSLock()
 	private var _onVideoSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
-	private var _onCaptureStopped: ((Error?) -> Void)?
+	private var _onMicSampleBuffer: ((CMSampleBuffer) -> Void)?
+	private var _onCaptureStopped: ((String?) -> Void)?
 	private let stateLock = NSLock()
 	private var _loggedNonCompleteFrame = false
 	private var _loggedMissingImageBuffer = false
@@ -24,7 +26,15 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		set { callbackLock.withLock { _onAudioSampleBuffer = newValue } }
 	}
 
-	var onCaptureStopped: ((Error?) -> Void)? {
+	var onMicSampleBuffer: ((CMSampleBuffer) -> Void)? {
+		get { callbackLock.withLock { _onMicSampleBuffer } }
+		set { callbackLock.withLock { _onMicSampleBuffer = newValue } }
+	}
+
+	/// Reports the stop reason as a plain string rather than an `Error`. See
+	/// `RewindStreamStopObserver` — the framework's error object cannot be
+	/// safely bridged into Swift or held past the delegate callback.
+	var onCaptureStopped: ((String?) -> Void)? {
 		get { callbackLock.withLock { _onCaptureStopped } }
 		set { callbackLock.withLock { _onCaptureStopped = newValue } }
 	}
@@ -32,6 +42,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 	private(set) var displaySize: CGSize?
 
 	private var stream: SCStream?
+	private let stopObserver = RewindStreamStopObserver()
 	private let videoQueue: DispatchQueue
 	private let audioQueue: DispatchQueue
 	private var captureResolution: CaptureResolution?
@@ -58,30 +69,49 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		videoQueue = sampleQueue
 		self.audioQueue = audioQueue
 		super.init()
+		stopObserver.onStop = { [weak self] reason in
+			guard let self else { return }
+			let stoppedCallback = self.onCaptureStopped
+			stoppedCallback?(reason)
+		}
 	}
 
 	func startCapture(
+		contentFilter: UncheckedSendable<SCContentFilter>? = nil,
 		resolution: CaptureResolution? = nil,
 		quality: QualityPreset = .default,
-		frameRate: Int = CaptureFrameRate.default.framesPerSecond
+		frameRate: Int = CaptureFrameRate.default.framesPerSecond,
+		recordMicrophone: Bool = false,
+		recordDesktopAudio: Bool = true,
+		microphoneDeviceID: String? = nil
 	) async throws {
 		guard stream == nil else { return }
 
-		let content: SCShareableContent
-		if #available(macOS 14.0, *) {
-			content = try await SCShareableContent.excludingDesktopWindows(
-				false, onScreenWindowsOnly: true
-			)
+		// When the user picked a display/window/app via SCContentSharingPicker we
+		// capture exactly that; otherwise fall back to the primary display.
+		let filter: SCContentFilter
+		let display: SCDisplay?
+		if let providedFilter = contentFilter?.value {
+			filter = providedFilter
+			display = nil
+			AppLog.debug(.capture, "ScreenCaptureService: using picker-provided content filter")
 		} else {
-			content = try await SCShareableContent.current
+			let content: SCShareableContent
+			if #available(macOS 14.0, *) {
+				content = try await SCShareableContent.excludingDesktopWindows(
+					false, onScreenWindowsOnly: true
+				)
+			} else {
+				content = try await SCShareableContent.current
+			}
+			guard let primaryDisplay = content.displays.first else {
+				throw CaptureError.noDisplay
+			}
+			display = primaryDisplay
+			filter = SCContentFilter(
+				display: primaryDisplay, excludingApplications: [], exceptingWindows: []
+			)
 		}
-		guard let display = content.displays.first else {
-			throw CaptureError.noDisplay
-		}
-
-		let filter = SCContentFilter(
-			display: display, excludingApplications: [], exceptingWindows: []
-		)
 
 		var nativeWidth = 0
 		var nativeHeight = 0
@@ -98,7 +128,9 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			AppLog.debug(.capture, "ScreenCaptureService: pointPixelScale:", scale)
 		}
 
-		if nativeWidth <= 1 || nativeHeight <= 1 {
+		// The display-based fallback only applies to a whole-display capture; a
+		// picker-provided window/app filter always reports a valid contentRect.
+		if nativeWidth <= 1 || nativeHeight <= 1, let display {
 			let displayID = display.displayID
 			if let mode = CGDisplayCopyDisplayMode(displayID) {
 				nativeWidth = mode.pixelWidth
@@ -161,12 +193,12 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		config.width = Int(outputSize.width)
 		config.height = Int(outputSize.height)
 		config.scalesToFit = (config.width != nativeWidth) || (config.height != nativeHeight)
-		config.queueDepth = 5
+		config.queueDepth = 8
 		config.pixelFormat = capturePixelFormat(for: quality)
 		config.colorSpaceName = CGColorSpace.sRGB
-		config.capturesAudio = true
+		config.capturesAudio = recordDesktopAudio
 		// user controlled
-		let clampedFrameRate = max(30, min(frameRate, 60))
+		let clampedFrameRate = max(30, min(frameRate, 120))
 		config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(clampedFrameRate))
 		config.showsCursor = true
 
@@ -185,16 +217,31 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			config.scalesToFit
 		)
 
+				if #available(macOS 15.0, *) {
+			config.captureMicrophone = recordMicrophone
+			// nil selects the system default input
+			config.microphoneCaptureDeviceID = recordMicrophone ? microphoneDeviceID : nil
+		}
+
 		displaySize = outputSize
 		loggedFirstFrame = false
 
-		let stream = SCStream(filter: filter, configuration: config, delegate: self)
+		let stream = SCStream(filter: filter, configuration: config, delegate: stopObserver)
 		try stream.addStreamOutput(
 			self, type: SCStreamOutputType.screen, sampleHandlerQueue: videoQueue
 		)
-		try stream.addStreamOutput(
-			self, type: SCStreamOutputType.audio, sampleHandlerQueue: audioQueue
-		)
+		if recordDesktopAudio {
+			try stream.addStreamOutput(
+				self, type: SCStreamOutputType.audio, sampleHandlerQueue: audioQueue
+			)
+		}
+		if #available(macOS 15.0, *) {
+			if recordMicrophone {
+				try stream.addStreamOutput(
+					self, type: SCStreamOutputType.microphone, sampleHandlerQueue: audioQueue
+				)
+			}
+		}
 		try await stream.startCapture()
 		self.stream = stream
 	}
@@ -244,15 +291,11 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 			let audioCallback = onAudioSampleBuffer
 			audioCallback?(sampleBuffer)
 		case .microphone:
-			return
+			let micCallback = onMicSampleBuffer
+			micCallback?(sampleBuffer)
 		@unknown default:
 			return
 		}
-	}
-
-	func stream(_: SCStream, didStopWithError error: Error) {
-		let stoppedCallback = onCaptureStopped
-		stoppedCallback?(error)
 	}
 
 	private func isCompleteVideoFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
@@ -274,7 +317,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, SCStreamDelegate, @u
 		} else {
 			status = nil
 		}
-		if let status, status != .complete {
+		if let status, status != .complete, status != .idle {
 			if !loggedNonCompleteFrame {
 				AppLog.debug(
 					.capture, "ScreenCaptureService: dropping non-complete frame status:",

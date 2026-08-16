@@ -39,8 +39,10 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(settings.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(settings.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(settings.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(settings.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(settings.analyticsEnabled, AppSettings.default.analyticsEnabled)
+		XCTAssertEqual(settings.enabledUploadProviderIDs, AppSettings.default.enabledUploadProviderIDs)
+		XCTAssertEqual(settings.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testSaveThenLoadPersistsValues() {
@@ -67,8 +69,18 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 45,
 			errorFeedbackSoundID: FeedbackSound.pop.id,
 			discordRPCEnabled: false,
-			useBFrames: false,
-			fileLoggingEnabled: false
+			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
+			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
+			fileLoggingEnabled: false,
+			analyticsEnabled: false,
+
+			betaUpdatesEnabled: false,
+			enabledUploadProviderIDs: [ClipUploadProvider.catboxID],
+			recordMicrophoneEnabled: true,
+			recordDesktopAudioEnabled: false,
+			captureTargetPromptEnabled: false,
+			microphoneDeviceID: "com.example.mic.usb",
+			outputDirectoryPath: "/Users/example/Desktop/Clips"
 		)
 
 		AppSettingsStorage.save(expected)
@@ -96,8 +108,14 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, expected.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, expected.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, expected.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, expected.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, expected.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, expected.analyticsEnabled)
+		XCTAssertEqual(loaded.enabledUploadProviderIDs, expected.enabledUploadProviderIDs)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, expected.recordMicrophoneEnabled)
+		XCTAssertEqual(loaded.recordDesktopAudioEnabled, expected.recordDesktopAudioEnabled)
+		XCTAssertEqual(loaded.captureTargetPromptEnabled, expected.captureTargetPromptEnabled)
+		XCTAssertEqual(loaded.microphoneDeviceID, expected.microphoneDeviceID)
+		XCTAssertEqual(loaded.outputDirectoryPath, expected.outputDirectoryPath)
 	}
 
 	func testLoadClearsStoredValuesAndReturnsDefaultWhenStoredSettingsAreInvalid() throws {
@@ -124,8 +142,18 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: 300,
 			errorFeedbackSoundID: "1234556789blahhhh",
 			discordRPCEnabled: false,
-			useBFrames: false,
-			fileLoggingEnabled: false
+			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
+			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
+			fileLoggingEnabled: false,
+			analyticsEnabled: false,
+
+			betaUpdatesEnabled: false,
+			enabledUploadProviderIDs: [],
+			recordMicrophoneEnabled: true,
+			recordDesktopAudioEnabled: true,
+			captureTargetPromptEnabled: true,
+			microphoneDeviceID: nil,
+			outputDirectoryPath: nil
 		)
 		let data = try JSONEncoder().encode(invalid)
 		UserDefaults.standard.set(data, forKey: storageKey)
@@ -155,8 +183,9 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, AppSettings.default.analyticsEnabled)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testLoadFallsBackToDefaultWhenStoredBlobIsInvalid() {
@@ -186,8 +215,9 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.errorFeedbackVolume, AppSettings.default.errorFeedbackVolume)
 		XCTAssertEqual(loaded.errorFeedbackSoundID, AppSettings.default.errorFeedbackSoundID)
 		XCTAssertEqual(loaded.discordRPCEnabled, AppSettings.default.discordRPCEnabled)
-		XCTAssertEqual(loaded.useBFrames, AppSettings.default.useBFrames)
 		XCTAssertEqual(loaded.fileLoggingEnabled, AppSettings.default.fileLoggingEnabled)
+		XCTAssertEqual(loaded.analyticsEnabled, AppSettings.default.analyticsEnabled)
+		XCTAssertEqual(loaded.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
 	}
 
 	func testSaveClearsStorageWhenSettingsAreInvalid() {
@@ -214,12 +244,166 @@ final class AppSettingsStorageTests: XCTestCase {
 			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
 			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
 			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
-			useBFrames: AppSettings.default.useBFrames,
-			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled
+			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
+			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
+			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			analyticsEnabled: AppSettings.default.analyticsEnabled,
+
+			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
+			enabledUploadProviderIDs: AppSettings.default.enabledUploadProviderIDs,
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
+			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
+			microphoneDeviceID: AppSettings.default.microphoneDeviceID,
+			outputDirectoryPath: AppSettings.default.outputDirectoryPath
 		)
 
 		AppSettingsStorage.save(invalid)
 
 		XCTAssertNil(UserDefaults.standard.object(forKey: storageKey))
+	}
+
+	// - Default tracking ---
+
+	private func storedDictionary() throws -> [String: Any] {
+		let data = try XCTUnwrap(UserDefaults.standard.data(forKey: storageKey))
+		return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+	}
+
+	private func settings(
+		qualityID: String,
+		frameRate: Int,
+		containerID: String,
+		audioCodecID: String
+	) -> AppSettings {
+		AppSettings(
+			replayDuration: AppSettings.default.replayDuration,
+			resolutionID: AppSettings.default.resolutionID,
+			qualityID: qualityID,
+			frameRate: frameRate,
+			containerID: containerID,
+			audioCodecID: audioCodecID,
+			hotkey: AppSettings.default.hotkey,
+			startRecordingHotkey: AppSettings.default.startRecordingHotkey,
+			alwaysRecordEnabled: AppSettings.default.alwaysRecordEnabled,
+			saveFeedbackEnabled: AppSettings.default.saveFeedbackEnabled,
+			saveFeedbackVolume: AppSettings.default.saveFeedbackVolume,
+			saveFeedbackSoundID: AppSettings.default.saveFeedbackSoundID,
+			recordingStartFeedbackEnabled: AppSettings.default.recordingStartFeedbackEnabled,
+			recordingStartFeedbackVolume: AppSettings.default.recordingStartFeedbackVolume,
+			recordingStartFeedbackSoundID: AppSettings.default.recordingStartFeedbackSoundID,
+			recordingEndFeedbackEnabled: AppSettings.default.recordingEndFeedbackEnabled,
+			recordingEndFeedbackVolume: AppSettings.default.recordingEndFeedbackVolume,
+			recordingEndFeedbackSoundID: AppSettings.default.recordingEndFeedbackSoundID,
+			errorFeedbackEnabled: AppSettings.default.errorFeedbackEnabled,
+			errorFeedbackVolume: AppSettings.default.errorFeedbackVolume,
+			errorFeedbackSoundID: AppSettings.default.errorFeedbackSoundID,
+			discordRPCEnabled: AppSettings.default.discordRPCEnabled,
+			shareGamePresenceEnabled: AppSettings.default.shareGamePresenceEnabled,
+			shareRobloxExperienceEnabled: AppSettings.default.shareRobloxExperienceEnabled,
+			fileLoggingEnabled: AppSettings.default.fileLoggingEnabled,
+			analyticsEnabled: AppSettings.default.analyticsEnabled,
+
+			betaUpdatesEnabled: AppSettings.default.betaUpdatesEnabled,
+			enabledUploadProviderIDs: AppSettings.default.enabledUploadProviderIDs,
+			recordMicrophoneEnabled: AppSettings.default.recordMicrophoneEnabled,
+			recordDesktopAudioEnabled: AppSettings.default.recordDesktopAudioEnabled,
+			captureTargetPromptEnabled: AppSettings.default.captureTargetPromptEnabled,
+			microphoneDeviceID: AppSettings.default.microphoneDeviceID,
+			outputDirectoryPath: AppSettings.default.outputDirectoryPath
+		)
+	}
+
+	func testDefaultValuedOptionsAreOmittedFromStorage() throws {
+		AppSettingsStorage.save(
+			settings(
+				qualityID: QualityPreset.default.id,
+				frameRate: CaptureFrameRate.default.framesPerSecond,
+				containerID: CaptureContainer.default.id,
+				audioCodecID: CaptureAudioCodec.default.id
+			)
+		)
+
+		let dict = try storedDictionary()
+		XCTAssertNil(dict["qualityID"])
+		XCTAssertNil(dict["frameRate"])
+		XCTAssertNil(dict["containerID"])
+		XCTAssertNil(dict["audioCodecID"])
+	}
+
+	func testNonDefaultOptionsArePersisted() throws {
+		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
+		let nonDefaultQuality = QualityPreset.presets.first { !$0.isDefault }!
+		let nonDefaultFrameRate = CaptureFrameRate.options.first { !$0.isDefault }!
+
+		AppSettingsStorage.save(
+			settings(
+				qualityID: nonDefaultQuality.id,
+				frameRate: nonDefaultFrameRate.framesPerSecond,
+				containerID: nonDefaultContainer.id,
+				audioCodecID: CaptureAudioCodec.default.id
+			)
+		)
+
+		let dict = try storedDictionary()
+		XCTAssertEqual(dict["containerID"] as? String, nonDefaultContainer.id)
+		XCTAssertNil(dict["audioCodecID"])
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.containerID, nonDefaultContainer.id)
+		XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.default.id)
+		XCTAssertEqual(loaded.qualityID, nonDefaultQuality.id)
+		XCTAssertEqual(loaded.frameRate, nonDefaultFrameRate.framesPerSecond)
+	}
+
+	func testAbsentOptionResolvesToCurrentDefault() throws {
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict.removeValue(forKey: "qualityID")
+		dict.removeValue(forKey: "frameRate")
+		dict.removeValue(forKey: "containerID")
+		dict.removeValue(forKey: "audioCodecID")
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.qualityID, QualityPreset.default.id)
+		XCTAssertEqual(loaded.frameRate, CaptureFrameRate.default.framesPerSecond)
+		XCTAssertEqual(loaded.containerID, CaptureContainer.default.id)
+		XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.default.id)
+	}
+
+	func testLegacyDefaultValuedBlobIsNormalizedOnLoad() throws {
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict["qualityID"] = QualityPreset.default.id
+		dict["frameRate"] = CaptureFrameRate.default.framesPerSecond
+		dict["containerID"] = CaptureContainer.default.id
+		dict["audioCodecID"] = CaptureAudioCodec.default.id
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		_ = AppSettingsStorage.load()
+
+		let normalized = try storedDictionary()
+		XCTAssertNil(normalized["qualityID"])
+		XCTAssertNil(normalized["frameRate"])
+		XCTAssertNil(normalized["containerID"])
+		XCTAssertNil(normalized["audioCodecID"])
+	}
+
+	func testLegacyNonDefaultBlobIsPreservedOnLoad() throws {
+		let nonDefaultContainer = CaptureContainer.options.first { !$0.isDefault }!
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict["containerID"] = nonDefaultContainer.id
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		let loaded = AppSettingsStorage.load()
+		XCTAssertEqual(loaded.containerID, nonDefaultContainer.id)
+
+		let stored = try storedDictionary()
+		XCTAssertEqual(stored["containerID"] as? String, nonDefaultContainer.id)
 	}
 }

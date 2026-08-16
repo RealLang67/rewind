@@ -21,6 +21,7 @@ final class ReplayWriterTests: XCTestCase {
 		case (.writerUnavailable, .writerUnavailable),
 		     (.noFramesCaptured, .noFramesCaptured),
 		     (.exportFailed, .exportFailed),
+		     (.writerFinishTimedOut, .writerFinishTimedOut),
 		     (.saveInProgress, .saveInProgress),
 		     (.invalidDuration, .invalidDuration),
 		     (.noDisplay, .noDisplay),

@@ -10,6 +10,14 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DIST_DIR="${PROJECT_ROOT}/dist"
 VERSION_FILE="${PROJECT_ROOT}/VERSION"
 
+POSTHOG_ENV_FILE="${PROJECT_ROOT}/.posthog.env"
+if [[ -f "${POSTHOG_ENV_FILE}" ]]; then
+  echo "Loading PostHog config from ${POSTHOG_ENV_FILE}"
+  # shellcheck disable=SC1090
+  source "${POSTHOG_ENV_FILE}"
+fi
+
+POSTHOG_HOST="${POSTHOG_HOST:-https://eu.i.posthog.com}"
 VERSION_OVERRIDE=""
 if [[ $# -gt 0 ]]; then
   case "$1" in
@@ -46,10 +54,11 @@ fi
 
 VERSION="${VERSION#v}"
 
-if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
   echo "not semantic" >&2
   exit 1
 fi
+
 
 VERSION_TAG="v${VERSION}"
 DMG_PATH="${DIST_DIR}/${APP_NAME}-${VERSION_TAG}.dmg"
@@ -128,6 +137,7 @@ if [[ ! -x "${EXECUTABLE_PATH}" ]]; then
   exit 1
 fi
 
+
 echo "Creating app bundle..."
 mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 
@@ -141,6 +151,10 @@ fi
 
 if [[ -d "${PROJECT_ROOT}/Resources/Sounds" ]]; then
   cp -R "${PROJECT_ROOT}/Resources/Sounds/" "${RESOURCES_DIR}/"
+fi
+
+if [[ -f "${PROJECT_ROOT}/Resources/games.tsv" ]]; then
+  cp "${PROJECT_ROOT}/Resources/games.tsv" "${RESOURCES_DIR}/games.tsv"
 fi
 
 cat > "${CONTENTS_DIR}/Info.plist" <<EOF
@@ -164,8 +178,20 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>${VERSION}</string>
   <key>CFBundleVersion</key>
   <string>${VERSION}</string>
+  <key>DTCompiler</key>
+  <string>com.apple.compilers.llvm.clang.1_0</string>
+  <key>DTPlatformBuild</key>
+  <string>24A335</string>
+  <key>DTPlatformName</key>
+  <string>macosx</string>
+  <key>DTPlatformVersion</key>
+  <string>16.0</string>
+  <key>DTSDKBuild</key>
+  <string>24A335</string>
+  <key>DTSDKName</key>
+  <string>macosx16.0</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>14.0</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>SUFeedURL</key>
@@ -174,6 +200,8 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>d0qDhMh7Acak94tDqDkPiyYj9U01VMshN1MZo7T6uD4=</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Rewind needs screen capture access to record your screen.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Rewind needs microphone access to record microphone audio.</string>
 </dict>
 </plist>
 EOF
@@ -181,6 +209,15 @@ EOF
 if [[ -n "${ICON_FILE}" ]]; then
   /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string ${ICON_FILE}" "${CONTENTS_DIR}/Info.plist"
 fi
+
+if [[ -n "${POSTHOG_PROJECT_TOKEN:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Add :PostHogProjectToken string ${POSTHOG_PROJECT_TOKEN}" "${CONTENTS_DIR}/Info.plist"
+  /usr/libexec/PlistBuddy -c "Add :PostHogHost string ${POSTHOG_HOST}" "${CONTENTS_DIR}/Info.plist"
+  echo "Injected privacy-preserving PostHog configuration into Info.plist"
+else
+  echo "POSTHOG_PROJECT_TOKEN not set; analytics will be disabled in this build."
+fi
+
 
 SPARKLE_FRAMEWORK_SRC="${PROJECT_ROOT}/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 if [[ -d "${SPARKLE_FRAMEWORK_SRC}" ]]; then
@@ -197,19 +234,139 @@ cat > "${STAGING_ROOT}/Rewind.entitlements" <<EOF
 <dict>
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>
 EOF
 
 adhoc_sign "${APP_BUNDLE}" "app bundle" "${STAGING_ROOT}/Rewind.entitlements"
 
-echo "Creating drag-and-drop DMG..."
+echo "Creating installer DMG..."
 remove_path "${DMG_PATH}" "disk image" || exit 1
 DMG_STAGING_DIR="${STAGING_ROOT}/dmg"
 mkdir -p "${DMG_STAGING_DIR}"
-ditto "${APP_BUNDLE}" "${DMG_STAGING_DIR}/${APP_NAME}.app"
-ln -s /Applications "${DMG_STAGING_DIR}/Applications"
-hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
+
+INSTALLER_NAME="Install ${APP_NAME}"
+INSTALLER_APP="${DMG_STAGING_DIR}/${INSTALLER_NAME}.app"
+INSTALLER_CONTENTS="${INSTALLER_APP}/Contents"
+INSTALLER_MACOS="${INSTALLER_CONTENTS}/MacOS"
+INSTALLER_RESOURCES="${INSTALLER_CONTENTS}/Resources"
+
+mkdir -p "${INSTALLER_MACOS}" "${INSTALLER_RESOURCES}"
+
+ditto "${APP_BUNDLE}" "${INSTALLER_RESOURCES}/${APP_NAME}.app"
+
+if [[ -f "${PROJECT_ROOT}/Resources/AppIcon.icns" ]]; then
+  cp "${PROJECT_ROOT}/Resources/AppIcon.icns" "${INSTALLER_RESOURCES}/AppIcon.icns"
+fi
+
+cat > "${INSTALLER_CONTENTS}/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>installer</string>
+  <key>CFBundleIdentifier</key>
+  <string>${BUNDLE_ID}.installer</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>${INSTALLER_NAME}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>${VERSION}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+EOF
+
+cat > "${INSTALLER_MACOS}/installer" <<'EOF'
+#!/bin/bash
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME="Rewind"
+BUNDLE_ID="com.rewind.app"
+APP_SOURCE="$(cd "${SCRIPT_DIR}/../Resources/${APP_NAME}.app" 2>/dev/null && pwd || true)"
+
+if [[ -z "${APP_SOURCE}" || ! -d "${APP_SOURCE}" ]]; then
+  osascript -e "display alert \"${APP_NAME} Installer Error\" message \"Could not find ${APP_NAME}.app inside the installer bundle.\" as critical"
+  exit 1
+fi
+
+DEST_DIR="/Applications"
+TARGET_APP="${DEST_DIR}/${APP_NAME}.app"
+
+CONFIRM=$(osascript -e "button returned of (display dialog \"Install ${APP_NAME} to /Applications?\n\nThis will install the application, remove quarantine attributes, and reset system permissions.\" with title \"${APP_NAME} Installer\" buttons {\"Cancel\", \"Install\"} default button \"Install\")" 2>/dev/null || echo "Cancel")
+
+if [[ "${CONFIRM}" != "Install" ]]; then
+  exit 0
+fi
+
+do_install() {
+  local target="$1"
+  local source="$2"
+  local bundle="$3"
+
+  killall "${APP_NAME}" 2>/dev/null || true
+  rm -rf "${target}"
+  ditto "${source}" "${target}"
+
+  xattr -cr "${target}" 2>/dev/null || true
+  xattr -dr com.apple.quarantine "${target}" 2>/dev/null || true
+  chmod -R 755 "${target}" 2>/dev/null || true
+
+  tccutil reset ScreenCapture "${bundle}" 2>/dev/null || true
+  tccutil reset Microphone "${bundle}" 2>/dev/null || true
+  tccutil reset Accessibility "${bundle}" 2>/dev/null || true
+}
+
+if [[ ! -w "${DEST_DIR}" ]] || [[ -e "${TARGET_APP}" && ! -w "${TARGET_APP}" ]]; then
+  ADMIN_SCRIPT="killall ${APP_NAME} 2>/dev/null || true; rm -rf '${TARGET_APP}' && ditto '${APP_SOURCE}' '${TARGET_APP}' && xattr -cr '${TARGET_APP}' 2>/dev/null || true; xattr -dr com.apple.quarantine '${TARGET_APP}' 2>/dev/null || true; chmod -R 755 '${TARGET_APP}' 2>/dev/null || true; tccutil reset ScreenCapture ${BUNDLE_ID} 2>/dev/null || true; tccutil reset Microphone ${BUNDLE_ID} 2>/dev/null || true; tccutil reset Accessibility ${BUNDLE_ID} 2>/dev/null || true"
+
+  if ! osascript -e "do shell script \"${ADMIN_SCRIPT}\" with administrator privileges" 2>/dev/null; then
+    osascript -e "display alert \"Installation Cancelled\" message \"Administrator privileges were required but not granted.\" as critical"
+    exit 1
+  fi
+else
+  do_install "${TARGET_APP}" "${APP_SOURCE}" "${BUNDLE_ID}"
+fi
+
+if [[ ! -d "${TARGET_APP}" || ! -x "${TARGET_APP}/Contents/MacOS/${APP_NAME}" ]]; then
+  osascript -e "display alert \"Installation Failed\" message \"Failed to install ${APP_NAME} to /Applications.\" as critical"
+  exit 1
+fi
+
+CHOICE=$(osascript -e "button returned of (display dialog \"${APP_NAME} has been successfully installed!\n\nQuarantine was cleared and permissions have been reset.\" with title \"Installation Complete\" buttons {\"Done\", \"Open ${APP_NAME}\"} default button \"Open ${APP_NAME}\")" 2>/dev/null || echo "Done")
+
+if [[ "${CHOICE}" == "Open ${APP_NAME}" ]]; then
+  open "${TARGET_APP}"
+fi
+
+MOUNT_POINT="$(df "${SCRIPT_DIR}" 2>/dev/null | tail -1 | awk '{print $NF}')"
+if [[ "${MOUNT_POINT}" =~ ^/Volumes/ ]]; then
+  (sleep 1 && diskutil eject "${MOUNT_POINT}" >/dev/null 2>&1) &
+fi
+
+exit 0
+EOF
+
+chmod +x "${INSTALLER_MACOS}/installer"
+adhoc_sign "${INSTALLER_APP}" "installer app bundle"
+
+hdiutil create -volname "${INSTALLER_NAME}" -srcfolder "${DMG_STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
 adhoc_sign "${DMG_PATH}" "disk image"
 
 echo "Publishing app bundle to dist..."

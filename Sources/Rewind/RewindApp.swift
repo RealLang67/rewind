@@ -9,7 +9,8 @@ struct RewindApp: App {
 	init() {
 		_appState = ObservedObject(initialValue: AppCompositionRoot.shared.appState)
 		_updaterController = ObservedObject(initialValue: AppCompositionRoot.shared.updaterController)
-		AppLog.setupCrashHandlers()
+		AppLog.startFileLogging()
+		AppLog.installFallbackCrashHandlers()
 	}
 
 	var body: some Scene {
@@ -21,6 +22,11 @@ struct RewindApp: App {
 			SettingsView(appState: appState, updaterController: updaterController)
 		}
 		.defaultSize(width: 520, height: 440)
+
+		Window("Home", id: "home") {
+			HomeView(appState: appState)
+		}
+		.defaultSize(width: 800, height: 600)
 
 		Window("Settings", id: "settings-fallback") {
 			SettingsView(appState: appState, updaterController: updaterController)

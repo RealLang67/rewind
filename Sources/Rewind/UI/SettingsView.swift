@@ -13,6 +13,9 @@ struct SettingsView: View {
 
 	var body: some View {
 		TabView {
+			GeneralSettingsPane(appState: appState, updaterController: updaterController)
+				.tabItem { Label("General", systemImage: "gearshape") }
+
 			CaptureSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Capture", systemImage: "record.circle") }
 
@@ -25,10 +28,15 @@ struct SettingsView: View {
 			IntegrationsSettingsPane(appState: appState, settingsLocked: settingsLocked)
 				.tabItem { Label("Integrations", systemImage: "puzzlepiece.extension") }
 
-			AboutSettingsPane(appState: appState, updaterController: updaterController)
+			AboutSettingsPane()
 				.tabItem { Label("About", systemImage: "info.circle") }
 		}
 		.frame(minWidth: 440, minHeight: 440)
+		.safeAreaInset(edge: .top, spacing: 0) {
+			if settingsLocked {
+				PermissionCallout(appState: appState)
+			}
+		}
 		.background(
 			WindowAccessor { window in
 				applyNaturalWindowSizeIfNeeded(window)
@@ -39,6 +47,7 @@ struct SettingsView: View {
 			if appState.availableResolutions.isEmpty, !appState.isLoadingResolutions {
 				appState.refreshResolutions()
 			}
+			appState.refreshMicrophones()
 		}
 	}
 
@@ -49,6 +58,78 @@ struct SettingsView: View {
 		let naturalSize = NSSize(width: 520, height: 440)
 		window.contentMinSize = naturalSize
 		window.setContentSize(naturalSize)
+	}
+}
+
+private struct GeneralSettingsPane: View {
+	@ObservedObject var appState: AppState
+	@ObservedObject var updaterController: UpdaterController
+	@State private var showingResetConfirmation = false
+
+	var body: some View {
+		Form {
+			Section("Startup") {
+				LabeledContent {
+					Toggle("", isOn: $appState.launchAtLoginEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Open on login", help: "Automatically launch Rewind when you log in to your Mac.")
+				}
+			}
+
+			Section("Updates") {
+				Button("Check for Updates...") {
+					updaterController.checkForUpdates()
+				}
+				.liquidGlassButtonStyle()
+				.disabled(!updaterController.updater.canCheckForUpdates)
+
+				Toggle(isOn: $appState.betaUpdatesEnabled) {
+					HelpLabel("Receive beta updates", help: "Opt in to early beta releases. Betas may be less stable. Turn off to return to stable releases on the next update.")
+				}
+			}
+
+			Section("Privacy") {
+				Toggle(isOn: $appState.analyticsEnabled) {
+					HelpLabel(
+						"Share anonymous analytics",
+						help: "Sends anonymous app-open, recording, and replay-save events to help improve Rewind. Never includes recordings, screenshots, file paths, game names, or error details."
+					)
+				}
+			}
+
+			Section("Diagnostics") {
+				Toggle(isOn: $appState.fileLoggingEnabled) {
+					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
+				}
+
+				Button("Reveal Log File in Finder") {
+					if let url = AppLog.logFileURL {
+						NSWorkspace.shared.activateFileViewerSelecting([url])
+					}
+				}
+				.liquidGlassButtonStyle()
+			}
+
+			Section("Advanced") {
+				Button("Reset to Defaults...", role: .destructive) {
+					showingResetConfirmation = true
+				}
+				.liquidGlassButtonStyle()
+			}
+		}
+		.formStyle(.grouped)
+		.confirmationDialog(
+			"Reset all settings to their defaults?",
+			isPresented: $showingResetConfirmation,
+			titleVisibility: .visible
+		) {
+			Button("Reset to Defaults", role: .destructive) {
+				appState.resetToDefaults()
+			}
+			Button("Cancel", role: .cancel) {}
+		}
 	}
 }
 
@@ -76,18 +157,28 @@ private struct CaptureSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section("Recording") {
+				LabeledContent {
+					Toggle("", isOn: $appState.captureTargetPromptEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+						.disabled(!AppState.supportsCaptureTargetPrompt)
+				} label: {
+					HelpLabel(
+						"Choose what to record",
+						help: AppState.supportsCaptureTargetPrompt
+							? "When you start recording manually, macOS asks which display, window or app to capture. Turn off to always record the main display."
+							: "Choosing a display, window, or app to capture requires macOS 14 or later."
+					)
+				}
+
 				LabeledContent {
 					Stepper(
 						value: replayDurationSecondsBinding,
 						in: replayDurationRange,
 						step: replayDurationStep
 					) {
-						Text("\(Int(appState.replayDuration)) seconds")
+						Text(Int(appState.replayDuration).formattedDuration)
 							.foregroundStyle(.secondary)
 					}
 					.frame(width: 200, alignment: .trailing)
@@ -113,7 +204,7 @@ private struct CaptureSettingsPane: View {
 
 				Picker(selection: $appState.selectedQuality) {
 					ForEach(QualityPreset.presets) { preset in
-						Text(preset.label).tag(preset)
+						Text(defaultTaggedLabel(preset.label, isDefault: preset.isDefault)).tag(preset)
 					}
 				} label: {
 					HelpLabel("Quality", help: "Higher quality increases file size but produces clearer video.")
@@ -122,35 +213,81 @@ private struct CaptureSettingsPane: View {
 
 				Picker(selection: $appState.selectedFrameRate) {
 					ForEach(CaptureFrameRate.options) { option in
-						Text(option.label).tag(option)
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
 					}
 				} label: {
 					HelpLabel("Frame rate", help: "Higher frame rates produce smoother video but use more system resources.")
 				}
 				.pickerStyle(.menu)
+			}
+			.disabled(settingsLocked)
 
-				Toggle(isOn: $appState.useBFrames) {
-					HelpLabel("Use B-Frames", help: "Improves quality at no file size cost, but may cause issues.")
+			Section("Audio") {
+				LabeledContent {
+					Toggle("", isOn: $appState.recordDesktopAudioEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel("Record desktop audio", help: "Captures system/app audio playing on your Mac.")
+				}
+
+				LabeledContent {
+					Toggle("", isOn: $appState.recordMicrophoneEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+						.disabled(!AppState.supportsMicrophoneCapture)
+				} label: {
+					HelpLabel(
+						"Record Microphone",
+						help: AppState.supportsMicrophoneCapture
+							? "Captures microphone audio. Requires microphone permissions."
+							: "Captures microphone audio. Requires macOS 15 or later."
+					)
+				}
+
+				if AppState.supportsMicrophoneCapture {
+					Picker(selection: $appState.selectedMicrophoneDeviceID) {
+						Text("System Default").tag(String?.none)
+						ForEach(appState.availableMicrophones) { device in
+							Text(device.name).tag(Optional(device.id))
+						}
+					} label: {
+						HelpLabel("Microphone", help: "Which microphone to capture. System Default follows your Mac's input device.")
+					}
+					.pickerStyle(.menu)
+					.disabled(!appState.recordMicrophoneEnabled)
 				}
 			}
 			.disabled(settingsLocked)
 
 			Section("Output") {
+				LabeledContent("Save location") {
+					HStack(spacing: 8) {
+						Text(appState.outputDirectoryPath ?? "Movies/Rewind")
+							.lineLimit(1)
+							.truncationMode(.middle)
+							.foregroundStyle(.secondary)
+							.frame(maxWidth: 160, alignment: .trailing)
+
+						Button("Change...") {
+							let panel = NSOpenPanel()
+							panel.canChooseFiles = false
+							panel.canChooseDirectories = true
+							panel.canCreateDirectories = true
+							if panel.runModal() == .OK, let url = panel.url {
+								appState.outputDirectoryPath = url.path
+							}
+						}
+						.controlSize(.small)
+					}
+				}
+
 				Picker(selection: $appState.selectedContainer) {
 					ForEach(CaptureContainer.options) { option in
-						Text(option.label).tag(option)
+						Text(defaultTaggedLabel(option.label, isDefault: option.isDefault)).tag(option)
 					}
 				} label: {
 					HelpLabel("Container", help: "Video file format for saved clips (.mp4 or .mov).")
-				}
-				.pickerStyle(.menu)
-
-				Picker(selection: $appState.selectedAudioCodec) {
-					ForEach(CaptureAudioCodec.options) { option in
-						Text(option.label).tag(option)
-					}
-				} label: {
-					HelpLabel("Audio codec", help: "Audio encoding format used for saved clips.")
 				}
 				.pickerStyle(.menu)
 			}
@@ -178,7 +315,8 @@ private struct CaptureSettingsPane: View {
 		} else {
 			Picker("Resolution", selection: $appState.selectedResolution) {
 				ForEach(appState.availableResolutions) { resolution in
-					Text(resolution.label).tag(Optional(resolution))
+					Text(defaultTaggedLabel(resolution.label, isDefault: resolution.isNative))
+							.tag(Optional(resolution))
 				}
 			}
 			.labelsHidden()
@@ -193,21 +331,15 @@ private struct HotkeysSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
-			Section("Shortcuts") {
+			Section {
 				HotkeyRecorderRow(title: "Start/Stop recording", hotkey: $appState.startRecordingHotkey)
 				HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+			} header: {
+				Text("Shortcuts")
+			} footer: {
+				Text("Press Escape to cancel recording.")
 			}
 			.disabled(settingsLocked)
-
-			Section {
-				Text("Press Escape to cancel recording. Shortcuts must include at least one modifier key.")
-					.font(.footnote)
-					.foregroundStyle(.secondary)
-			}
 		}
 		.formStyle(.grouped)
 	}
@@ -281,10 +413,6 @@ private struct FeedbackSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			FeedbackSection(
 				title: "Save Feedback",
 				toggleLabel: "Enable save feedback",
@@ -357,25 +485,46 @@ private struct IntegrationsSettingsPane: View {
 
 	var body: some View {
 		Form {
-			if settingsLocked {
-				PermissionNoticeRow()
-			}
-
 			Section("Connections") {
 				Toggle(isOn: $appState.discordRPCEnabled) {
 					HelpLabel("Enable Discord RPC", help: "Shows your recording status on your Discord profile.")
 				}
+				Toggle(isOn: $appState.shareGamePresenceEnabled) {
+					HelpLabel("Show the game you're playing", help: "Adds the game you're playing to your Discord status. Turn this off to show only that you're recording, without naming the game.")
+				}
+				.disabled(!appState.discordRPCEnabled)
+				Toggle(isOn: $appState.shareRobloxExperienceEnabled) {
+					HelpLabel("Show your Roblox experience", help: "Shows exactly which Roblox experience you're in, with a button friends can use to join you. Turn this off to show just \"Roblox\".")
+				}
+				.disabled(!appState.discordRPCEnabled || !appState.shareGamePresenceEnabled)
+			}
+			.disabled(settingsLocked)
+
+			Section {
+				ForEach(ClipUploadProvider.providers) { provider in
+					Toggle(isOn: uploadProviderBinding(for: provider)) {
+						HelpLabel(provider.displayName, help: provider.summary)
+					}
+				}
+			} header: {
+				Text("Upload Providers")
+			} footer: {
+				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
 			.disabled(settingsLocked)
 		}
 		.formStyle(.grouped)
 	}
+
+	private func uploadProviderBinding(for provider: ClipUploadProvider) -> Binding<Bool> {
+		Binding(
+			get: { appState.isUploadProviderEnabled(provider) },
+			set: { appState.setUploadProvider(provider, enabled: $0) }
+		)
+	}
 }
 
 private struct AboutSettingsPane: View {
-	@ObservedObject var appState: AppState
-	@ObservedObject var updaterController: UpdaterController
-
 	private var appVersion: String {
 		let shortVersion = normalizedVersion(
 			Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -411,27 +560,14 @@ private struct AboutSettingsPane: View {
 				LabeledContent("Version") {
 					Text(appVersion)
 				}
-
-				Button("Check for Updates...") {
-					updaterController.checkForUpdates()
-				}
-				.disabled(!updaterController.updater.canCheckForUpdates)
-			}
-
-			Section("Advanced") {
-				Toggle(isOn: $appState.fileLoggingEnabled) {
-					HelpLabel("Enable verbose file logging", help: "Writes detailed debug logs to disk for troubleshooting.")
-				}
-				
-				Button("Reveal Log File in Finder") {
-					if let url = AppLog.logFileURL {
-						NSWorkspace.shared.activateFileViewerSelecting([url])
-					}
-				}
 			}
 		}
 		.formStyle(.grouped)
 	}
+}
+
+private func defaultTaggedLabel(_ label: String, isDefault: Bool) -> String {
+	isDefault ? "\(label) (Default)" : label
 }
 
 private struct HelpLabel: View {
@@ -465,28 +601,43 @@ private struct HelpLabel: View {
 				}
 				.popover(isPresented: $isHovering, arrowEdge: .top) {
 					Text(help)
-						.frame(maxWidth: 250)
-						.fixedSize(horizontal: false, vertical: true)
+						.lineLimit(nil)
+						.frame(width: 220, alignment: .leading)
 						.padding(10)
 				}
 		}
 	}
 }
 
-private struct PermissionNoticeRow: View {
-	var body: some View {
-		Section {
-			VStack(alignment: .leading, spacing: 8) {
-				Label("Screen recording permission is required to change capture settings.", systemImage: "lock.fill")
-					.font(.callout)
-					.foregroundStyle(.secondary)
+private struct PermissionCallout: View {
+	@ObservedObject var appState: AppState
 
-				Button("Open System Settings") {
-					PermissionManager.openSystemSettings()
-				}
+	var body: some View {
+		HStack(spacing: 12) {
+			Image(systemName: "lock.fill")
+				.font(.title3)
+				.foregroundStyle(.secondary)
+
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Screen recording permission required")
+					.font(.callout.weight(.medium))
+				Text("Grant access to change capture settings.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
 			}
-			.padding(.vertical, 2)
+
+			Spacer(minLength: 8)
+
+			Button("Open System Settings") {
+				appState.requestScreenRecordingAccess()
+			}
+			.buttonStyle(.borderedProminent)
+			.controlSize(.small)
 		}
+		.padding(12)
+		.liquidGlassCard(cornerRadius: 14)
+		.padding(.horizontal)
+		.padding(.top, 8)
 	}
 }
 
@@ -531,9 +682,6 @@ private struct HotkeyRecorderRow: View {
 			}
 
 			let relevantFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
-			if relevantFlags.isEmpty {
-				return nil
-			}
 
 			hotkey = Hotkey(keyCode: UInt32(event.keyCode), modifiers: relevantFlags.carbonModifiers)
 			stopRecording()

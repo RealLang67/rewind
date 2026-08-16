@@ -22,5 +22,7 @@ struct CaptureContainer: Hashable, Identifiable {
 	)
 
 	static let options: [CaptureContainer] = [.mov, .mp4]
-	static let `default` = mov
+	static let `default` = mp4
+
+	var isDefault: Bool { id == CaptureContainer.default.id }
 }

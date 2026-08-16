@@ -22,18 +22,63 @@ final class ClipLibrary: ObservableObject {
 	}
 
 	func addClip(url: URL, duration: TimeInterval) async throws -> Clip {
-		let exportedURL = try ensureExported(url: url)
-		var clip = Clip(url: exportedURL, duration: duration)
+		var clip = Clip(url: url, duration: duration)
 		clip = try await store.save(clip: clip)
-		clips.append(clip)
+		clips.insert(clip, at: 0)
 		return clip
+	}
+
+	func toggleFavorite(clip: Clip) {
+		var updatedClip = clip
+		if updatedClip.isFavorite {
+			updatedClip.tags.removeAll { $0 == "favorite" }
+		} else {
+			updatedClip.tags.append("favorite")
+		}
+		
+		if let idx = clips.firstIndex(where: { $0.id == updatedClip.id }) {
+			clips[idx] = updatedClip
+		}
+
+		Task {
+			do {
+				_ = try await store.save(clip: updatedClip)
+			} catch {
+				AppLog.error(.library, "Unable to favorite clip:", error)
+				if let idx = clips.firstIndex(where: { $0.id == updatedClip.id }) {
+					clips[idx] = clip
+				}
+			}
+		}
+	}
+
+	func deleteClip(_ clip: Clip) async {
+		do {
+			try await store.delete(id: clip.id)
+		} catch {
+			AppLog.error(.library, "Unable to delete clip from store:", error)
+			return
+		}
+
+		let fm = FileManager.default
+		if clip.url.isFileURL, fm.fileExists(atPath: clip.url.path) {
+			do {
+				try fm.removeItem(at: clip.url)
+			} catch {
+				AppLog.error(.library, "Deleted clip row but failed to remove file:", error)
+			}
+		}
+
+		clips.removeAll { $0.id == clip.id }
+		// Otherwise the thumbnails directory grows forever.
+		await ClipThumbnailCache.shared.invalidate(clipID: clip.id)
 	}
 
 	private func load() async {
 		isLoading = true
 		loadError = nil
 		do {
-			clips = try await store.fetchAll()
+			clips = await pruningMissingFiles(from: try await store.fetchAll())
 		} catch {
 			loadError = error
 			clips = []
@@ -42,34 +87,29 @@ final class ClipLibrary: ObservableObject {
 		isLoading = false
 	}
 
-	private func ensureExported(url: URL) throws -> URL {
+	private func pruningMissingFiles(from stored: [Clip]) async -> [Clip] {
 		let fm = FileManager.default
-		let moviesFolder = fm.urls(for: .moviesDirectory, in: .userDomainMask).first?
-			.appendingPathComponent("Rewind", isDirectory: true)
-			?? fm.temporaryDirectory.appendingPathComponent("Rewind", isDirectory: true)
-		try fm.createDirectory(at: moviesFolder, withIntermediateDirectories: true)
-
-		if url.path.hasPrefix(moviesFolder.path + "/") {
-			return url
+		var surviving: [Clip] = []
+		for clip in stored {
+			guard clip.url.isFileURL, !fm.fileExists(atPath: clip.url.path) else {
+				surviving.append(clip)
+				continue
+			}
+			do {
+				try await store.delete(id: clip.id)
+			} catch {
+				AppLog.error(.library, "ClipLibrary: failed to prune missing clip:", error)
+			}
 		}
-
-		let baseName = url.deletingPathExtension().lastPathComponent
-		let ext = url.pathExtension.isEmpty ? "mov" : url.pathExtension
-		let uniqueName = "\(baseName)_\(Int(Date().timeIntervalSince1970)).\(ext)"
-		let targetURL = moviesFolder.appendingPathComponent(uniqueName)
-
-		do {
-			try fm.moveItem(at: url, to: targetURL)
-		} catch {
-			try fm.copyItem(at: url, to: targetURL)
-		}
-		return targetURL
+		return surviving
 	}
+
 }
 
 protocol ClipStore: Actor {
 	func fetchAll() async throws -> [Clip]
 	func save(clip: Clip) async throws -> Clip
+	func delete(id: UUID) async throws
 }
 
 enum ClipStoreError: Error {
@@ -173,6 +213,22 @@ actor SQLiteClipStore: ClipStore {
 			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
 		}
 		return clip
+	}
+
+	func delete(id: UUID) async throws {
+		guard let db = db.pointer else { throw ClipStoreError.sqliteFailure("Database unavailable") }
+		let sql = "DELETE FROM clips WHERE id = ?;"
+		var statement: OpaquePointer?
+		guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
+		}
+		defer { sqlite3_finalize(statement) }
+
+		bindText(statement, 1, id.uuidString)
+
+		guard sqlite3_step(statement) == SQLITE_DONE else {
+			throw ClipStoreError.sqliteFailure(sqliteErrorMessage(db))
+		}
 	}
 
 	private static func openDB(at url: URL) -> OpaquePointer? {

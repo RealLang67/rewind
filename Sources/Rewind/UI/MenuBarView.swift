@@ -11,7 +11,7 @@ struct MenuBarView: View {
 		.disabled(recordingButtonDisabled)
 		.applyHotkey(appState.startRecordingHotkey)
 
-		Button("Save Last \(Int(appState.replayDuration))s") {
+		Button("Save Last \(Int(appState.replayDuration).formattedDuration)") {
 			appState.saveReplay()
 		}
 		.disabled(!appState.isCapturing)
@@ -19,10 +19,24 @@ struct MenuBarView: View {
 
 		Divider()
 
+		Button("Open Last Clip") {
+			appState.clipToOpen = appState.lastClip ?? appState.clipLibrary.clips.first
+			NSApp.activate(ignoringOtherApps: true)
+			openWindow(id: "home")
+		}
+		.disabled(appState.lastClip == nil && appState.clipLibrary.clips.isEmpty)
+
+		Button("Open Home") {
+			NSApp.activate(ignoringOtherApps: true)
+			openWindow(id: "home")
+		}
+
+		Divider()
+
 		Menu("Replay Duration") {
 			ForEach(replayDurationOptions, id: \.self) { duration in
 				Toggle(
-					"\(duration)s",
+					duration.formattedDuration,
 					isOn: Binding(
 						get: {
 							Int(appState.replayDuration) == duration
@@ -64,6 +78,11 @@ struct MenuBarView: View {
 		}
 		.disabled(!appState.permissionState.screenRecording)
 
+		Menu("Microphone") {
+			microphoneMenuContent
+		}
+		.disabled(!AppState.supportsMicrophoneCapture)
+
 		Button("Show in Finder") {
 			showLastClipInFinder()
 		}
@@ -72,7 +91,7 @@ struct MenuBarView: View {
 		if !appState.permissionState.screenRecording {
 			Divider()
 			Button("⚠ Screen Recording Required") {
-				PermissionManager.openSystemSettings()
+				appState.requestScreenRecordingAccess()
 			}
 		}
 
@@ -105,6 +124,47 @@ struct MenuBarView: View {
 
 	private var recordingButtonDisabled: Bool {
 		appState.alwaysRecordEnabled && appState.isCapturing
+	}
+
+	@ViewBuilder
+	private var microphoneMenuContent: some View {
+		Toggle(
+			"None",
+			isOn: Binding(
+				get: { !appState.recordMicrophoneEnabled },
+				set: { isEnabled in
+					if isEnabled {
+						appState.recordMicrophoneEnabled = false
+					}
+				}
+			)
+		)
+		.toggleStyle(.checkbox)
+
+		Divider()
+
+		Toggle("System Default", isOn: microphoneSelection(nil))
+			.toggleStyle(.checkbox)
+
+		ForEach(appState.availableMicrophones) { device in
+			Toggle(device.name, isOn: microphoneSelection(device.id))
+				.toggleStyle(.checkbox)
+		}
+	}
+
+	private func microphoneSelection(_ deviceID: String?) -> Binding<Bool> {
+		Binding(
+			get: {
+				appState.recordMicrophoneEnabled
+					&& appState.selectedMicrophoneDeviceID == deviceID
+			},
+			set: { isEnabled in
+				if isEnabled {
+					appState.selectedMicrophoneDeviceID = deviceID
+					appState.recordMicrophoneEnabled = true
+				}
+			}
+		)
 	}
 
 	@ViewBuilder
@@ -165,7 +225,7 @@ struct MenuBarView: View {
 		// fallback
 		NSWorkspace.shared.activateFileViewerSelecting([clip.url])
 		if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
-			finder.activate(options: [.activateIgnoringOtherApps])
+			finder.activate()
 		}
 	}
 

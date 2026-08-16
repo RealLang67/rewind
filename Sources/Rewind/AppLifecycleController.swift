@@ -8,6 +8,7 @@ final class AppLifecycleController: NSObject {
 	private var windowCoordinator: WindowCoordinator?
 
 	private var appActiveObserver: NSObjectProtocol?
+	private var sleepObservers: [NSObjectProtocol] = []
 	private var dockRelevantWindows = Set<ObjectIdentifier>()
 	private var cancellables = Set<AnyCancellable>()
 	private var lowStorageWarningActive = false
@@ -26,14 +27,24 @@ final class AppLifecycleController: NSObject {
 		guard !hasStarted else { return }
 		hasStarted = true
 
-		NSApp.setActivationPolicy(.accessory)
 		ensureUIControllers()
 		configureHotkeys()
 		observeApplicationState()
 		observeWindowState()
 
-		windowCoordinator?.showOnboardingIfNeeded()
-		appState.startAlwaysRecording()
+		if windowCoordinator?.shouldShowOnboarding == true {
+			windowCoordinator?.showOnboardingIfNeeded(onDismiss: { [weak self] in
+				self?.appState.startAlwaysRecording()
+			})
+		} else {
+			NSApp.setActivationPolicy(.accessory)
+			appState.startAlwaysRecording()
+		}
+	}
+
+	func showOnboarding() {
+		ensureUIControllers()
+		windowCoordinator?.showOnboarding()
 	}
 
 	func stop() {
@@ -44,6 +55,10 @@ final class AppLifecycleController: NSObject {
 			NotificationCenter.default.removeObserver(appActiveObserver)
 			self.appActiveObserver = nil
 		}
+		for observer in sleepObservers {
+			NSWorkspace.shared.notificationCenter.removeObserver(observer)
+		}
+		sleepObservers.removeAll()
 		NotificationCenter.default.removeObserver(
 			self,
 			name: NSWindow.didBecomeKeyNotification,
@@ -113,14 +128,30 @@ final class AppLifecycleController: NSObject {
 			}
 			.store(in: &cancellables)
 
-		NSWorkspace.shared.notificationCenter.addObserver(
-			forName: NSWorkspace.didWakeNotification,
-			object: nil,
-			queue: .main
-		) { [weak appState] _ in
-			Task { @MainActor in
-				appState?.startAlwaysRecording()
-			}
+		let wsCenter = NSWorkspace.shared.notificationCenter
+
+		let sleepNames: [NSNotification.Name] = [
+			NSWorkspace.willSleepNotification,
+			NSWorkspace.screensDidSleepNotification
+		]
+		let wakeNames: [NSNotification.Name] = [
+			NSWorkspace.didWakeNotification,
+			NSWorkspace.screensDidWakeNotification
+		]
+
+		for name in sleepNames {
+			sleepObservers.append(
+				wsCenter.addObserver(forName: name, object: nil, queue: .main) { [weak appState] _ in
+					Task { @MainActor in appState?.handleSleep() }
+				}
+			)
+		}
+		for name in wakeNames {
+			sleepObservers.append(
+				wsCenter.addObserver(forName: name, object: nil, queue: .main) { [weak appState] _ in
+					Task { @MainActor in appState?.handleWake() }
+				}
+			)
 		}
 	}
 

@@ -6,19 +6,32 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 	private let shownKey = "ui.onboarding.shown.v2"
 	private let userDefaults: UserDefaults
 	private var window: NSWindow?
+	private var onDismiss: (() -> Void)?
+
+	var shouldShow: Bool {
+		userDefaults.bool(forKey: shownKey) == false
+	}
 
 	init(userDefaults: UserDefaults = .standard) {
 		self.userDefaults = userDefaults
 		super.init()
 	}
 
-	func showIfNeeded() {
-		guard userDefaults.bool(forKey: shownKey) == false else { return }
-		userDefaults.set(true, forKey: shownKey)
-		show()
+	func showIfNeeded(onDismiss: (() -> Void)? = nil) {
+		guard shouldShow else { return }
+		show(onDismiss: onDismiss)
 	}
 
-	private func show() {
+	func windowWillClose(_ notification: Notification) {
+		userDefaults.set(true, forKey: shownKey)
+		let callback = onDismiss
+		onDismiss = nil
+		callback?()
+	}
+
+	func show(onDismiss: (() -> Void)? = nil) {
+		self.onDismiss = onDismiss
+
 		if window == nil {
 			let view = OnboardingView(
 				close: { [weak self] in
@@ -37,7 +50,10 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 			self.window = window
 		}
 
+		NSApp.setActivationPolicy(.regular)
+		window?.center()
 		window?.makeKeyAndOrderFront(nil)
+		window?.orderFrontRegardless()
 		NSApp.activate(ignoringOtherApps: true)
 	}
 }
