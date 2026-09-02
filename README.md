@@ -47,19 +47,4 @@ Rewind is built using Swift and Swift Package Manager.
 
 On first launch, Rewind will ask for **Screen Recording** access. Click Allow. If you accidentally denied it, turn it back on in **System Settings -> Privacy & Security -> Screen Recording**.
 
-## Contact
-
-Discord: https://discord.gg/4Dc9AgGC4e
-
-## Donate
-
-Ko-fi: https://ko-fi.com/l1zov
-
-**Crypto:**
-- USDT & USDC (Solana Network): `GhZQc8tGyNdGgSraq7KaLVzZH9EwJxESzKSf4bd7TkW1`
-- USDT (TRON Network): `TYmyHtXYBJFgDsNjiM5gwMieemZG3KKJaq`
-- LTC (LTC): `ltc1qpvwmcuhxucn07v6uql8af6wxnplt0mad07upsq`
-
-## License
-
 This project is licensed under the terms of the included [LICENSE](LICENSE) file.
