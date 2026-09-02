@@ -66,13 +66,15 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "dist/Rewind.app" "${ZIP_PATH}"
 
       - name: Generate Appcast
+        id: appcast
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           IS_PRERELEASE: ${{ steps.version_meta.outputs.is_prerelease }}
         run: |
           if [ -z "${SPARKLE_PRIVATE_KEY}" ]; then
-            echo "missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
+            echo "generated=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::SPARKLE_PRIVATE_KEY is not configured; skipping Sparkle appcast generation."
+            exit 0
           fi
 
           # Seed the existing feed so generate_appcast keeps the other channel's
@@ -82,6 +84,7 @@ jobs:
 
           # Write clean private key to temporary file
           KEY_FILE="$(mktemp)"
+          trap 'rm -f "${KEY_FILE}"' EXIT
           printf '%s' "${SPARKLE_PRIVATE_KEY}" | tr -d '\r\n ' > "${KEY_FILE}"
 
           mv dist/*.zip ./
@@ -94,6 +97,7 @@ jobs:
           fi
 
           rm -f "${KEY_FILE}"
+          trap - EXIT
           mv ./*.zip dist/
           mv ./*-installer.dmg dist/
 
@@ -103,7 +107,10 @@ jobs:
             exit 1
           fi
 
+          echo "generated=true" >> "${GITHUB_OUTPUT}"
+
       - name: Deploy Appcast to GitHub Pages
+        if: steps.appcast.outputs.generated == 'true'
         run: |
           git clone --branch gh-pages "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" pages_repo || {
             echo "gh-pages branch does not exist, creating it..."
