@@ -13,8 +13,10 @@ struct AppSettings: Codable {
 	var frameRate: Int
 	var containerID: String
 	var audioCodecID: String
+	var recordingModeID: String
 	var hotkey: Hotkey
 	var startRecordingHotkey: Hotkey
+	var stopRecordingHotkey: Hotkey
 	var alwaysRecordEnabled: Bool
 	var saveFeedbackEnabled: Bool
 	var saveFeedbackVolume: Double
@@ -50,8 +52,10 @@ struct AppSettings: Codable {
 		frameRate: CaptureFrameRate.default.framesPerSecond,
 		containerID: CaptureContainer.default.id,
 		audioCodecID: CaptureAudioCodec.default.id,
+		recordingModeID: RecordingMode.default.id,
 		hotkey: .default,
 		startRecordingHotkey: .startRecordingDefault,
+		stopRecordingHotkey: .stopRecordingDefault,
 		alwaysRecordEnabled: false,
 		saveFeedbackEnabled: true,
 		saveFeedbackVolume: 20,
@@ -87,8 +91,10 @@ struct AppSettings: Codable {
 		case frameRate
 		case containerID
 		case audioCodecID
+		case recordingModeID
 		case hotkey
 		case startRecordingHotkey
+		case stopRecordingHotkey
 		case alwaysRecordEnabled = "autoRecordEnabled"
 		case saveFeedbackEnabled
 		case saveFeedbackVolume
@@ -128,8 +134,10 @@ struct AppSettings: Codable {
 		frameRate: Int,
 		containerID: String,
 		audioCodecID: String,
+		recordingModeID: String,
 		hotkey: Hotkey,
 		startRecordingHotkey: Hotkey,
+		stopRecordingHotkey: Hotkey,
 		alwaysRecordEnabled: Bool,
 		saveFeedbackEnabled: Bool,
 		saveFeedbackVolume: Double,
@@ -163,8 +171,10 @@ struct AppSettings: Codable {
 		self.frameRate = frameRate
 		self.containerID = containerID
 		self.audioCodecID = audioCodecID
+		self.recordingModeID = recordingModeID
 		self.hotkey = hotkey
 		self.startRecordingHotkey = startRecordingHotkey
+		self.stopRecordingHotkey = stopRecordingHotkey
 		self.alwaysRecordEnabled = alwaysRecordEnabled
 		self.saveFeedbackEnabled = saveFeedbackEnabled
 		self.saveFeedbackVolume = saveFeedbackVolume
@@ -201,9 +211,12 @@ struct AppSettings: Codable {
 		frameRate = try container.decodeIfPresent(Int.self, forKey: .frameRate) ?? CaptureFrameRate.default.framesPerSecond
 		containerID = try container.decodeIfPresent(String.self, forKey: .containerID) ?? CaptureContainer.default.id
 		audioCodecID = try container.decodeIfPresent(String.self, forKey: .audioCodecID) ?? CaptureAudioCodec.default.id
+		recordingModeID = try container.decodeIfPresent(String.self, forKey: .recordingModeID) ?? RecordingMode.default.id
 		hotkey = try container.decode(Hotkey.self, forKey: .hotkey)
 		startRecordingHotkey = try container.decodeIfPresent(Hotkey.self, forKey: .startRecordingHotkey)
 			?? .startRecordingDefault
+		stopRecordingHotkey = try container.decodeIfPresent(Hotkey.self, forKey: .stopRecordingHotkey)
+			?? .stopRecordingDefault
 		alwaysRecordEnabled = try container.decodeIfPresent(Bool.self, forKey: .alwaysRecordEnabled) ?? false
 		saveFeedbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .saveFeedbackEnabled) ?? true
 		saveFeedbackVolume = try container.decodeIfPresent(Double.self, forKey: .saveFeedbackVolume)
@@ -271,8 +284,10 @@ struct AppSettings: Codable {
 		let audioCodecToStore: String? = audioCodecID == CaptureAudioCodec.default.id ? nil : audioCodecID
 		try container.encodeIfPresent(audioCodecToStore, forKey: .audioCodecID)
 
+		try container.encode(recordingModeID, forKey: .recordingModeID)
 		try container.encode(hotkey, forKey: .hotkey)
 		try container.encode(startRecordingHotkey, forKey: .startRecordingHotkey)
+		try container.encode(stopRecordingHotkey, forKey: .stopRecordingHotkey)
 		try container.encode(alwaysRecordEnabled, forKey: .alwaysRecordEnabled)
 		try container.encode(saveFeedbackEnabled, forKey: .saveFeedbackEnabled)
 		try container.encode(saveFeedbackVolume, forKey: .saveFeedbackVolume)
@@ -315,6 +330,10 @@ struct AppSettings: Codable {
 
 	var audioCodec: CaptureAudioCodec {
 		CaptureAudioCodec.options.first(where: { $0.id == audioCodecID }) ?? .default
+	}
+
+	var recordingMode: RecordingMode {
+		RecordingMode.options.first(where: { $0.id == recordingModeID }) ?? .default
 	}
 
 	var saveFeedbackSound: FeedbackSound {
@@ -382,6 +401,9 @@ enum AppSettingsStorage {
 			return false
 		}
 		guard CaptureAudioCodec.options.contains(where: { $0.id == settings.audioCodecID }) else {
+			return false
+		}
+		guard RecordingMode.options.contains(where: { $0.id == settings.recordingModeID }) else {
 			return false
 		}
 		guard AppSettings.saveFeedbackVolumeRange.contains(settings.saveFeedbackVolume) else {

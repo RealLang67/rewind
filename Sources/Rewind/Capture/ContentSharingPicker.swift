@@ -40,6 +40,16 @@ final class ContentSharingPicker: NSObject, SCContentSharingPickerObserver, @unc
 		}
 	}
 
+	/// Dismisses an in-flight picker and releases its continuation. This lets the
+	/// Stop hotkey and sleep/termination paths cancel a pending recording start.
+	@MainActor
+	func cancel() {
+		let picker = SCContentSharingPicker.shared
+		picker.remove(self)
+		picker.isActive = false
+		takeContinuation()?.resume(throwing: Cancelled())
+	}
+
 	/// Atomically claim the pending continuation so it is resumed exactly once;
 	/// callbacks that arrive afterwards become no-ops.
 	private func takeContinuation() -> CheckedContinuation<UncheckedSendable<SCContentFilter>, Error>? {

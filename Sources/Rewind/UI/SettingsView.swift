@@ -114,6 +114,7 @@ private struct GeneralSettingsPane: View {
 				Button("Reset to Defaults...", role: .destructive) {
 					showingResetConfirmation = true
 				}
+				.disabled(appState.isCapturing || appState.isCaptureTransitioning)
 			}
 		}
 		.formStyle(.grouped)
@@ -138,6 +139,11 @@ private struct CaptureSettingsPane: View {
 		Int(AppSettings.replayDurationRange.lowerBound) ... Int(AppSettings.replayDurationRange.upperBound)
 	}
 
+	private var manualCaptureConfigurationLocked: Bool {
+		appState.selectedRecordingMode == .recording
+			&& (appState.isCapturing || appState.isCaptureTransitioning)
+	}
+
 	private var replayDurationStep: Int {
 		max(1, Int(AppSettings.replayDurationStep))
 	}
@@ -156,6 +162,23 @@ private struct CaptureSettingsPane: View {
 		Form {
 			Section("Recording") {
 				LabeledContent {
+					Picker("", selection: $appState.selectedRecordingMode) {
+						ForEach(RecordingMode.options) { mode in
+							Text(mode.label).tag(mode)
+						}
+					}
+					.labelsHidden()
+					.pickerStyle(.segmented)
+					.frame(width: 230)
+					.disabled(appState.isCapturing || appState.isCaptureTransitioning)
+				} label: {
+					HelpLabel(
+						"Mode",
+						help: "Instant Replay saves the recent past. Recording saves everything from Start until Stop, like OBS."
+					)
+				}
+
+				LabeledContent {
 					Toggle("", isOn: $appState.captureTargetPromptEnabled)
 						.labelsHidden()
 						.toggleStyle(.switch)
@@ -169,26 +192,28 @@ private struct CaptureSettingsPane: View {
 					)
 				}
 
-				LabeledContent {
-					Stepper(
-						value: replayDurationSecondsBinding,
-						in: replayDurationRange,
-						step: replayDurationStep
-					) {
-						Text(Int(appState.replayDuration).formattedDuration)
-							.foregroundStyle(.secondary)
+				if appState.selectedRecordingMode == .instantReplay {
+					LabeledContent {
+						Stepper(
+							value: replayDurationSecondsBinding,
+							in: replayDurationRange,
+							step: replayDurationStep
+						) {
+							Text(Int(appState.replayDuration).formattedDuration)
+								.foregroundStyle(.secondary)
+						}
+						.frame(width: 200, alignment: .trailing)
+					} label: {
+						HelpLabel("Clip length", help: "Determines how many seconds of video to save when capturing.")
 					}
-					.frame(width: 200, alignment: .trailing)
-				} label: {
-					HelpLabel("Clip length", help: "Determines how many seconds of video to save when capturing.")
-				}
 
-				LabeledContent {
-					Toggle("", isOn: $appState.alwaysRecordEnabled)
-						.labelsHidden()
-						.toggleStyle(.switch)
-				} label: {
-					HelpLabel("Always record", help: "Automatically saves clips continuously in the background.")
+					LabeledContent {
+						Toggle("", isOn: $appState.alwaysRecordEnabled)
+							.labelsHidden()
+							.toggleStyle(.switch)
+					} label: {
+						HelpLabel("Always record", help: "Starts the Instant Replay buffer automatically when Rewind opens.")
+					}
 				}
 			}
 			.disabled(settingsLocked)
@@ -217,7 +242,7 @@ private struct CaptureSettingsPane: View {
 				}
 				.pickerStyle(.menu)
 			}
-			.disabled(settingsLocked)
+			.disabled(settingsLocked || manualCaptureConfigurationLocked)
 
 			Section("Audio") {
 				LabeledContent {
@@ -255,7 +280,7 @@ private struct CaptureSettingsPane: View {
 					.disabled(!appState.recordMicrophoneEnabled)
 				}
 			}
-			.disabled(settingsLocked)
+			.disabled(settingsLocked || manualCaptureConfigurationLocked)
 
 			Section("Output") {
 				LabeledContent("Save location") {
@@ -288,7 +313,7 @@ private struct CaptureSettingsPane: View {
 				}
 				.pickerStyle(.menu)
 			}
-			.disabled(settingsLocked)
+			.disabled(settingsLocked || manualCaptureConfigurationLocked)
 		}
 		.formStyle(.grouped)
 	}
@@ -329,12 +354,21 @@ private struct HotkeysSettingsPane: View {
 	var body: some View {
 		Form {
 			Section {
-				HotkeyRecorderRow(title: "Start/Stop recording", hotkey: $appState.startRecordingHotkey)
-				HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+				HotkeyRecorderRow(title: "Start recording", hotkey: $appState.startRecordingHotkey)
+				HotkeyRecorderRow(title: "Stop recording", hotkey: $appState.stopRecordingHotkey)
+				if appState.selectedRecordingMode == .instantReplay {
+					HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+				}
 			} header: {
 				Text("Shortcuts")
 			} footer: {
-				Text("Press Escape to cancel recording.")
+				VStack(alignment: .leading, spacing: 4) {
+					Text("Press Escape to cancel shortcut recording.")
+					if let message = appState.hotkeyConflictMessage {
+						Text(message)
+							.foregroundStyle(.red)
+					}
+				}
 			}
 			.disabled(settingsLocked)
 		}
@@ -479,6 +513,12 @@ private struct WindowAccessor: NSViewRepresentable {
 private struct IntegrationsSettingsPane: View {
 	@ObservedObject var appState: AppState
 	let settingsLocked: Bool
+	@State private var streamableEmail = ""
+	@State private var streamablePassword = ""
+	@State private var savedStreamableEmail: String?
+	@State private var streamableCredentialError: String?
+	@State private var isLoadingStreamableAccount = true
+	@State private var isSavingStreamableAccount = false
 
 	var body: some View {
 		Form {
@@ -502,6 +542,10 @@ private struct IntegrationsSettingsPane: View {
 					Toggle(isOn: uploadProviderBinding(for: provider)) {
 						HelpLabel(provider.displayName, help: provider.summary)
 					}
+					.disabled(
+						provider.authentication == .streamableBasic
+							&& (isLoadingStreamableAccount || savedStreamableEmail == nil)
+					)
 				}
 			} header: {
 				Text("Upload Providers")
@@ -509,8 +553,63 @@ private struct IntegrationsSettingsPane: View {
 				Text("By enabling a provider, you agree to their respective Terms of Service and Privacy Policy.")
 			}
 			.disabled(settingsLocked)
+
+			Section {
+				LabeledContent("Email") {
+					TextField("name@example.com", text: $streamableEmail)
+						.textFieldStyle(.roundedBorder)
+						.frame(width: 240)
+				}
+
+				LabeledContent("Password") {
+					SecureField("Streamable password", text: $streamablePassword)
+						.textFieldStyle(.roundedBorder)
+						.frame(width: 240)
+				}
+
+				HStack {
+					Button(savedStreamableEmail == nil ? "Save Account" : "Update Account") {
+						saveStreamableAccount()
+					}
+					.disabled(
+						isSavingStreamableAccount
+							|| streamableEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+							|| streamablePassword.isEmpty
+					)
+
+					if savedStreamableEmail != nil {
+						Button("Forget Account", role: .destructive) {
+							forgetStreamableAccount()
+						}
+					}
+				}
+
+				if let savedStreamableEmail {
+					Label("Connected as \(savedStreamableEmail)", systemImage: "checkmark.circle.fill")
+						.foregroundStyle(.green)
+						.font(.caption)
+				}
+
+				if let streamableCredentialError {
+					Text(streamableCredentialError)
+						.foregroundStyle(.red)
+						.font(.caption)
+				}
+
+				Link("Create or manage your Streamable account", destination: URL(string: "https://streamable.com")!)
+			}
+			header: {
+				Text("Streamable Account")
+			}
+			footer: {
+				Text("Required for Streamable cloud uploads. Your password is stored in the macOS Keychain and is only sent to api.streamable.com.")
+			}
+			.disabled(settingsLocked || isLoadingStreamableAccount)
 		}
 		.formStyle(.grouped)
+		.task {
+			await loadStreamableAccount()
+		}
 	}
 
 	private func uploadProviderBinding(for provider: ClipUploadProvider) -> Binding<Bool> {
@@ -518,6 +617,60 @@ private struct IntegrationsSettingsPane: View {
 			get: { appState.isUploadProviderEnabled(provider) },
 			set: { appState.setUploadProvider(provider, enabled: $0) }
 		)
+	}
+
+	private func loadStreamableAccount() async {
+		do {
+			let email = try await StreamableCredentialStore.shared.accountEmail()
+			savedStreamableEmail = email
+			if streamableEmail.isEmpty {
+				streamableEmail = email ?? ""
+			}
+			streamableCredentialError = nil
+		} catch {
+			streamableCredentialError = error.localizedDescription
+		}
+		isLoadingStreamableAccount = false
+	}
+
+	private func saveStreamableAccount() {
+		let email = streamableEmail
+		let password = streamablePassword
+		isSavingStreamableAccount = true
+		streamableCredentialError = nil
+
+		Task { @MainActor in
+			do {
+				let credentials = try StreamableCredentials(email: email, password: password)
+				try await StreamableCredentialStore.shared.save(credentials)
+				savedStreamableEmail = credentials.email
+				streamableEmail = credentials.email
+				streamablePassword = ""
+			} catch {
+				streamableCredentialError = error.localizedDescription
+			}
+			isSavingStreamableAccount = false
+		}
+	}
+
+	private func forgetStreamableAccount() {
+		isSavingStreamableAccount = true
+		streamableCredentialError = nil
+
+		Task { @MainActor in
+			do {
+				try await StreamableCredentialStore.shared.delete()
+				savedStreamableEmail = nil
+				streamableEmail = ""
+				streamablePassword = ""
+				if let provider = ClipUploadProvider.provider(id: ClipUploadProvider.streamableID) {
+					appState.setUploadProvider(provider, enabled: false)
+				}
+			} catch {
+				streamableCredentialError = error.localizedDescription
+			}
+			isSavingStreamableAccount = false
+		}
 	}
 }
 

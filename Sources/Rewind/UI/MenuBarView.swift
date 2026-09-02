@@ -5,17 +5,38 @@ struct MenuBarView: View {
 	@ObservedObject var appState: AppState
 
 	var body: some View {
+		Menu("Mode: \(appState.selectedRecordingMode.label)") {
+			ForEach(RecordingMode.options) { mode in
+				Toggle(
+					mode.label,
+					isOn: Binding(
+						get: { appState.selectedRecordingMode == mode },
+						set: { isEnabled in
+							if isEnabled {
+								appState.selectedRecordingMode = mode
+							}
+						}
+					)
+				)
+				.toggleStyle(.checkbox)
+				.help(mode.description)
+			}
+		}
+		.disabled(appState.isCapturing || appState.isCaptureTransitioning)
+
 		Button(recordingButtonTitle) {
 			appState.toggleCapture()
 		}
 		.disabled(recordingButtonDisabled)
-		.applyHotkey(appState.startRecordingHotkey)
+		.applyHotkey(recordingButtonHotkey)
 
-		Button("Save Last \(Int(appState.replayDuration).formattedDuration)") {
-			appState.saveReplay()
+		if appState.selectedRecordingMode == .instantReplay {
+			Button(appState.isSavingReplay ? "Saving Replay…" : "Save Last \(Int(appState.replayDuration).formattedDuration)") {
+				appState.saveReplay()
+			}
+			.disabled(!appState.isCapturing || appState.isCaptureTransitioning || appState.isSavingReplay)
+			.applyHotkey(appState.hotkey)
 		}
-		.disabled(!appState.isCapturing)
-		.applyHotkey(appState.hotkey)
 
 		Divider()
 
@@ -33,23 +54,25 @@ struct MenuBarView: View {
 
 		Divider()
 
-		Menu("Replay Duration") {
-			ForEach(replayDurationOptions, id: \.self) { duration in
-				Toggle(
-					duration.formattedDuration,
-					isOn: Binding(
-						get: {
-							Int(appState.replayDuration) == duration
-						},
-						set: { isEnabled in
-							if isEnabled {
-								appState.replayDuration = TimeInterval(duration)
+		if appState.selectedRecordingMode == .instantReplay {
+			Menu("Replay Duration") {
+				ForEach(replayDurationOptions, id: \.self) { duration in
+					Toggle(
+						duration.formattedDuration,
+						isOn: Binding(
+							get: {
+								Int(appState.replayDuration) == duration
+							},
+							set: { isEnabled in
+								if isEnabled {
+									appState.replayDuration = TimeInterval(duration)
+								}
 							}
-						}
+						)
 					)
-				)
-				.toggleStyle(.checkbox)
-				.help("Set replay duration to \(duration) seconds")
+					.toggleStyle(.checkbox)
+					.help("Set replay duration to \(duration) seconds")
+				}
 			}
 		}
 
@@ -116,14 +139,32 @@ struct MenuBarView: View {
 	}
 
 	private var recordingButtonTitle: String {
-		if appState.alwaysRecordEnabled {
-			return appState.isCapturing ? "Recording (Always)" : "Start Recording"
+		if appState.isStartingCapture {
+			return "Starting Recording…"
 		}
-		return appState.isCapturing ? "Stop Recording" : "Start Recording"
+		if appState.isRestartingCapture {
+			return "Applying Capture Settings…"
+		}
+		if appState.isStoppingCapture {
+			return appState.selectedRecordingMode == .recording
+				? "Saving Recording…"
+				: "Stopping Recording…"
+		}
+		if appState.selectedRecordingMode == .recording {
+			return appState.isCapturing ? "Stop & Save Recording" : "Start Recording"
+		}
+		if appState.alwaysRecordEnabled {
+			return appState.isCapturing ? "Stop Replay Buffer (Always)" : "Start Replay Buffer"
+		}
+		return appState.isCapturing ? "Stop Replay Buffer" : "Start Replay Buffer"
 	}
 
 	private var recordingButtonDisabled: Bool {
-		appState.alwaysRecordEnabled && appState.isCapturing
+		appState.isCaptureTransitioning
+	}
+
+	private var recordingButtonHotkey: Hotkey {
+		appState.isCapturing ? appState.stopRecordingHotkey : appState.startRecordingHotkey
 	}
 
 	@ViewBuilder

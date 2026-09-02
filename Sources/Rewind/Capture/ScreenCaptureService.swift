@@ -10,7 +10,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 	private var _onVideoSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onAudioSampleBuffer: ((CMSampleBuffer) -> Void)?
 	private var _onMicSampleBuffer: ((CMSampleBuffer) -> Void)?
-	private var _onCaptureStopped: ((String?) -> Void)?
+	private var _onCaptureStopped: ((UInt64, String?) -> Void)?
 	private let stateLock = NSLock()
 	private var _loggedNonCompleteFrame = false
 	private var _loggedMissingImageBuffer = false
@@ -34,7 +34,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 	/// Reports the stop reason as a plain string rather than an `Error`. See
 	/// `RewindStreamStopObserver` — the framework's error object cannot be
 	/// safely bridged into Swift or held past the delegate callback.
-	var onCaptureStopped: ((String?) -> Void)? {
+	var onCaptureStopped: ((UInt64, String?) -> Void)? {
 		get { callbackLock.withLock { _onCaptureStopped } }
 		set { callbackLock.withLock { _onCaptureStopped = newValue } }
 	}
@@ -42,7 +42,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 	private(set) var displaySize: CGSize?
 
 	private var stream: SCStream?
-	private let stopObserver = RewindStreamStopObserver()
+	private var stopObserver: RewindStreamStopObserver?
+	private var nextStreamGeneration: UInt64 = 0
 	private let videoQueue: DispatchQueue
 	private let audioQueue: DispatchQueue
 	private var captureResolution: CaptureResolution?
@@ -69,11 +70,6 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 		videoQueue = sampleQueue
 		self.audioQueue = audioQueue
 		super.init()
-		stopObserver.onStop = { [weak self] reason in
-			guard let self else { return }
-			let stoppedCallback = self.onCaptureStopped
-			stoppedCallback?(reason)
-		}
 	}
 
 	func startCapture(
@@ -84,8 +80,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 		recordMicrophone: Bool = false,
 		recordDesktopAudio: Bool = true,
 		microphoneDeviceID: String? = nil
-	) async throws {
-		guard stream == nil else { return }
+	) async throws -> UInt64 {
+		guard stream == nil else { throw CaptureManager.SessionError.alreadyActive }
 
 		// When the user picked a display/window/app via SCContentSharingPicker we
 		// capture exactly that; otherwise fall back to the primary display.
@@ -226,7 +222,15 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 		displaySize = outputSize
 		loggedFirstFrame = false
 
-		let stream = SCStream(filter: filter, configuration: config, delegate: stopObserver)
+		nextStreamGeneration &+= 1
+		let generation = nextStreamGeneration
+		let observer = RewindStreamStopObserver()
+		observer.onStop = { [weak self] reason in
+			guard let self else { return }
+			let stoppedCallback = self.onCaptureStopped
+			stoppedCallback?(generation, reason)
+		}
+		let stream = SCStream(filter: filter, configuration: config, delegate: observer)
 		try stream.addStreamOutput(
 			self, type: SCStreamOutputType.screen, sampleHandlerQueue: videoQueue
 		)
@@ -244,6 +248,8 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 		}
 		try await stream.startCapture()
 		self.stream = stream
+		stopObserver = observer
+		return generation
 	}
 
 	private func capturePixelFormat(for quality: QualityPreset) -> OSType {
@@ -255,6 +261,7 @@ final class ScreenCaptureService: NSObject, SCStreamOutput, @unchecked Sendable 
 		guard let stream = stream else { return }
 		_ = try? await stream.stopCapture()
 		self.stream = nil
+		stopObserver = nil
 		displaySize = nil
 	}
 

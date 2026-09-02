@@ -15,6 +15,33 @@ struct Hotkey: Codable, Equatable {
 		modifiers: UInt32(cmdKey | shiftKey)
 	)
 
+	static func startRecordingDefault(avoiding hotkeys: [Hotkey]) -> Hotkey {
+		let candidates = [
+			startRecordingDefault,
+			Hotkey(keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey | shiftKey)),
+			Hotkey(keyCode: UInt32(kVK_F9), modifiers: UInt32(cmdKey | shiftKey)),
+		]
+		return candidates.first { candidate in
+			!hotkeys.contains(candidate)
+		} ?? startRecordingDefault
+	}
+
+	static let stopRecordingDefault = Hotkey(
+		keyCode: UInt32(kVK_ANSI_X),
+		modifiers: UInt32(cmdKey | shiftKey)
+	)
+
+	static func stopRecordingDefault(avoiding hotkeys: [Hotkey]) -> Hotkey {
+		let candidates = [
+			stopRecordingDefault,
+			Hotkey(keyCode: UInt32(kVK_ANSI_E), modifiers: UInt32(cmdKey | shiftKey)),
+			Hotkey(keyCode: UInt32(kVK_F10), modifiers: UInt32(cmdKey | shiftKey)),
+		]
+		return candidates.first { candidate in
+			!hotkeys.contains(candidate)
+		} ?? stopRecordingDefault
+	}
+
 	var displayString: String {
 		var parts: [String] = []
 		let flags = modifierFlags

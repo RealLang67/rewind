@@ -15,6 +15,15 @@ final class AppState: ObservableObject {
 	)
 
 	@Published private(set) var isCapturing = false
+	@Published private(set) var isStartingCapture = false
+	@Published private(set) var isStoppingCapture = false
+	@Published private(set) var isRestartingCapture = false
+	@Published private(set) var isSavingReplay = false
+	@Published private(set) var hotkeyConflictMessage: String?
+
+	var isCaptureTransitioning: Bool {
+		isStartingCapture || isStoppingCapture || isRestartingCapture
+	}
 	@Published var replayDuration: TimeInterval = 30 {
 		didSet {
 			guard !isRestoringSettings else { return }
@@ -115,10 +124,39 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var selectedRecordingMode: RecordingMode = .default {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard selectedRecordingMode != oldValue else { return }
+			guard !isCapturing, !isCaptureTransitioning else {
+				isRestoringSettings = true
+				selectedRecordingMode = oldValue
+				isRestoringSettings = false
+				return
+			}
+			automaticCaptureRetryTask?.cancel()
+			automaticCaptureRetryTask = nil
+			if selectedRecordingMode != .instantReplay {
+				resumeAlwaysRecordingAfterStop = false
+			}
+			persistSettings()
+			if selectedRecordingMode == .instantReplay, alwaysRecordEnabled {
+				startCapture(reason: .alwaysRecord)
+			}
+		}
+	}
+
 	@Published var hotkey: Hotkey = .default {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard hotkey != oldValue else { return }
+			guard hotkey != startRecordingHotkey, hotkey != stopRecordingHotkey else {
+				rejectHotkeyChange(
+					message: "Save Last Clip must use a different shortcut from Start and Stop."
+				) { hotkey = oldValue }
+				return
+			}
+			hotkeyConflictMessage = nil
 			persistSettings()
 			updateGlobalHotkeys()
 		}
@@ -128,6 +166,33 @@ final class AppState: ObservableObject {
 		didSet {
 			guard !isRestoringSettings else { return }
 			guard startRecordingHotkey != oldValue else { return }
+			guard startRecordingHotkey != hotkey,
+			      startRecordingHotkey != stopRecordingHotkey
+			else {
+				rejectHotkeyChange(
+					message: "Start Recording must use a unique shortcut."
+				) { startRecordingHotkey = oldValue }
+				return
+			}
+			hotkeyConflictMessage = nil
+			persistSettings()
+			updateGlobalHotkeys()
+		}
+	}
+
+	@Published var stopRecordingHotkey: Hotkey = .stopRecordingDefault {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard stopRecordingHotkey != oldValue else { return }
+			guard stopRecordingHotkey != hotkey,
+			      stopRecordingHotkey != startRecordingHotkey
+			else {
+				rejectHotkeyChange(
+					message: "Stop Recording must use a unique shortcut."
+				) { stopRecordingHotkey = oldValue }
+				return
+			}
+			hotkeyConflictMessage = nil
 			persistSettings()
 			updateGlobalHotkeys()
 		}
@@ -138,8 +203,13 @@ final class AppState: ObservableObject {
 			guard !isRestoringSettings else { return }
 			guard alwaysRecordEnabled != oldValue else { return }
 			persistSettings()
-			if alwaysRecordEnabled {
+			if alwaysRecordEnabled, selectedRecordingMode == .instantReplay {
 				startCapture(reason: .alwaysRecord)
+			} else if !alwaysRecordEnabled {
+				resumeAlwaysRecordingAfterStop = false
+				if isStartingCapture {
+					cancelPendingCaptureStart()
+				}
 			}
 		}
 	}
@@ -450,6 +520,16 @@ final class AppState: ObservableObject {
 	private let gameDetector: GamePresenceDetector
 	private var gamePresenceTask: Task<Void, Never>?
 	private var automaticCaptureRetryTask: Task<Void, Never>?
+	private var captureStartTask: Task<Void, Never>?
+	private var captureStopTask: Task<Void, Never>?
+	private var replayRestartTask: Task<Void, Never>?
+	private var captureGeneration: UInt64 = 0
+	private var replayRestartGeneration: UInt64 = 0
+	private var resumeAlwaysRecordingAfterStop = false
+	/// The mode that owns the active capture pipeline. This is intentionally
+	/// separate from the selected preference so an in-flight stop always uses the
+	/// matching capture API, even if settings are reset at the same time.
+	private var activeRecordingMode: RecordingMode?
 	/// Keeps the system content picker alive while it is presented (it is only an
 	/// observer, so it must be retained). Created lazily on macOS 14+.
 	private var contentPicker: Any?
@@ -502,9 +582,21 @@ final class AppState: ObservableObject {
 		selectedFrameRate = settings.frameRateOption
 		selectedContainer = settings.container
 		selectedAudioCodec = settings.audioCodec
+		selectedRecordingMode = settings.recordingMode
 		preferredResolutionID = settings.resolutionID
 		hotkey = settings.hotkey
-		startRecordingHotkey = settings.startRecordingHotkey
+		startRecordingHotkey = if settings.startRecordingHotkey == hotkey {
+			Hotkey.startRecordingDefault(avoiding: [hotkey])
+		} else {
+			settings.startRecordingHotkey
+		}
+		stopRecordingHotkey = if settings.stopRecordingHotkey == hotkey
+			|| settings.stopRecordingHotkey == startRecordingHotkey
+		{
+			Hotkey.stopRecordingDefault(avoiding: [hotkey, startRecordingHotkey])
+		} else {
+			settings.stopRecordingHotkey
+		}
 		alwaysRecordEnabled = settings.alwaysRecordEnabled
 		saveFeedbackEnabled = settings.saveFeedbackEnabled
 		saveFeedbackVolume = settings.saveFeedbackVolume
@@ -534,8 +626,11 @@ final class AppState: ObservableObject {
 		refreshMicrophones()
 		AppLog.fileLoggingEnabled = fileLoggingEnabled
 		Task { [weak self] in
-			await self?.captureManager.setOnCaptureInterruptedHandler { [weak self] error in
-				self?.handleCaptureInterrupted(error)
+			await self?.captureManager.setOnCaptureInterruptedHandler { [weak self] error, recoveredRecordingURL in
+				self?.handleCaptureInterrupted(
+					error,
+					recoveredRecordingURL: recoveredRecordingURL
+				)
 			}
 		}
 		Task { await loadAvailableResolutions() }
@@ -555,8 +650,12 @@ final class AppState: ObservableObject {
 	}
 
 	func resetToDefaults() {
+		if isStartingCapture {
+			cancelPendingCaptureStart()
+		}
 		let settings = AppSettings.default
 		let wasAlwaysRecording = alwaysRecordEnabled
+		let activeModeBeforeReset = activeRecordingMode
 
 		isRestoringSettings = true
 		replayDuration = settings.replayDuration
@@ -564,11 +663,13 @@ final class AppState: ObservableObject {
 		selectedFrameRate = settings.frameRateOption
 		selectedContainer = settings.container
 		selectedAudioCodec = settings.audioCodec
+		selectedRecordingMode = settings.recordingMode
 		preferredResolutionID = settings.resolutionID
 		selectedResolution = availableResolutions.first(where: { $0.isNative })
 			?? availableResolutions.first
 		hotkey = settings.hotkey
 		startRecordingHotkey = settings.startRecordingHotkey
+		stopRecordingHotkey = settings.stopRecordingHotkey
 		alwaysRecordEnabled = settings.alwaysRecordEnabled
 		saveFeedbackEnabled = settings.saveFeedbackEnabled
 		saveFeedbackVolume = settings.saveFeedbackVolume
@@ -602,8 +703,10 @@ final class AppState: ObservableObject {
 		Task { await analytics.setEnabled(shouldEnableAnalytics) }
 		updateGlobalHotkeys()
 		Task { await discordRPCClient.setEnabled(discordRPCEnabled) }
-		if wasAlwaysRecording, !alwaysRecordEnabled, isCapturing {
-			Task { await stopCaptureAsync() }
+		if activeModeBeforeReset == .recording, isCapturing {
+			stopRecording()
+		} else if wasAlwaysRecording, !alwaysRecordEnabled, isCapturing {
+			beginReplayStop(reason: .manual)
 		} else {
 			restartCaptureSilently()
 		}
@@ -613,8 +716,15 @@ final class AppState: ObservableObject {
 		startCapture(reason: isAutomatic ? .retry : .manual)
 	}
 
+	/// Starts the currently selected mode. Repeated start-hotkey presses while a
+	/// capture or transition is active are intentionally idempotent.
+	func startRecording() {
+		guard !isCapturing, !isCaptureTransitioning else { return }
+		startCapture(reason: .manual)
+	}
+
 	func startAlwaysRecording(isAutomatic: Bool = true) {
-		guard alwaysRecordEnabled else { return }
+		guard alwaysRecordEnabled, selectedRecordingMode == .instantReplay else { return }
 		if isDisplayOrSystemAsleep {
 			return
 		}
@@ -622,12 +732,64 @@ final class AppState: ObservableObject {
 	}
 
 	func stopCapture() {
-		guard !alwaysRecordEnabled else { return }
-		Task { await stopCaptureAsync() }
+		if selectedRecordingMode == .instantReplay, alwaysRecordEnabled {
+			alwaysRecordEnabled = false
+		}
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
+		if isStartingCapture {
+			cancelPendingCaptureStart()
+			return
+		}
+		if isRestartingCapture {
+			beginReplayStop(reason: .manual)
+			return
+		}
+		guard activeRecordingMode != .recording else { return }
+		guard isCapturing, !isCaptureTransitioning else { return }
+		beginReplayStop(reason: .manual)
+	}
+
+	/// Stops the active mode. Recording mode finalizes and adds the whole session
+	/// to the clip library; Instant Replay simply stops its rolling buffer.
+	func stopRecording() {
+		if selectedRecordingMode == .instantReplay {
+			if alwaysRecordEnabled {
+				alwaysRecordEnabled = false
+			}
+			automaticCaptureRetryTask?.cancel()
+			automaticCaptureRetryTask = nil
+		}
+		if isStartingCapture {
+			cancelPendingCaptureStart()
+			return
+		}
+		if isRestartingCapture {
+			if alwaysRecordEnabled {
+				alwaysRecordEnabled = false
+			}
+			beginReplayStop(reason: .manual)
+			return
+		}
+		guard isCapturing, !isCaptureTransitioning else { return }
+		if activeRecordingMode == .recording {
+			beginManualRecordingStop(reason: .manual)
+		} else {
+			stopCapture()
+		}
 	}
 
 	func saveReplay() {
-		Task { await saveReplayAsync() }
+		guard activeRecordingMode == .instantReplay,
+		      isCapturing,
+		      !isCaptureTransitioning,
+		      !isSavingReplay
+		else { return }
+		isSavingReplay = true
+		Task {
+			await saveReplayAsync()
+			isSavingReplay = false
+		}
 	}
 
 	func trackAppOpened() {
@@ -641,10 +803,37 @@ final class AppState: ObservableObject {
 
 	func toggleCapture() {
 		if isCapturing {
-			guard !alwaysRecordEnabled else { return }
-			stopCapture()
+			stopRecording()
 		} else {
-			startCapture(isAutomatic: false)
+			startRecording()
+		}
+	}
+
+	var needsCaptureShutdown: Bool {
+		isCapturing || isCaptureTransitioning
+	}
+
+	/// Finalizes an OBS-style recording before the process exits. Replay capture
+	/// has no user-owned pending file, so it is stopped and discarded normally.
+	func prepareForTermination() async {
+		resumeAlwaysRecordingAfterStop = false
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
+
+		if isStartingCapture {
+			cancelPendingCaptureStart()
+			await captureStartTask?.value
+		}
+		if isStoppingCapture {
+			await captureStopTask?.value
+			return
+		}
+		if isCapturing, activeRecordingMode == .recording {
+			beginManualRecordingStop(reason: .manual)
+			await captureStopTask?.value
+		} else if isCapturing {
+			beginReplayStop(reason: .manual)
+			await captureStopTask?.value
 		}
 	}
 
@@ -747,12 +936,35 @@ final class AppState: ObservableObject {
 	}
 
 	private func startCapture(reason: AnalyticsCaptureStartReason) {
-		Task { await startCaptureAsync(reason: reason) }
+		guard !isCapturing, !isCaptureTransitioning else { return }
+		let requestedMode = reason == .manual ? selectedRecordingMode : .instantReplay
+		guard reason == .manual || selectedRecordingMode == .instantReplay else { return }
+		captureGeneration &+= 1
+		let generation = captureGeneration
+		isStartingCapture = true
+		captureStartTask = Task {
+			await startCaptureAsync(
+				reason: reason,
+				mode: requestedMode,
+				generation: generation
+			)
+		}
 	}
 
-	private func startCaptureAsync(reason: AnalyticsCaptureStartReason) async {
+	private func startCaptureAsync(
+		reason: AnalyticsCaptureStartReason,
+		mode: RecordingMode,
+		generation: UInt64
+	) async {
+		defer {
+			if captureGeneration == generation {
+				captureStartTask = nil
+				isStartingCapture = false
+				resumeAlwaysRecordingIfNeeded()
+			}
+		}
 		let isAutomatic = reason != .manual
-		if isDisplayOrSystemAsleep {
+		if !captureStartIsCurrent(generation) {
 			return
 		}
 		if !isAutomatic {
@@ -760,6 +972,7 @@ final class AppState: ObservableObject {
 		}
 		do {
 			try await PermissionManager.ensureScreenAccess()
+			guard captureStartIsCurrent(generation) else { return }
 			permissionState = PermissionManager.currentState()
 
 			// On a manual start, let the user choose what to capture. Automatic
@@ -779,18 +992,45 @@ final class AppState: ObservableObject {
 			} else {
 				contentFilter = nil
 			}
+			guard captureStartIsCurrent(generation) else { return }
 
-			try await captureManager.start(
-				contentFilter: contentFilter,
-				resolution: selectedResolution,
-				quality: selectedQuality,
-				frameRate: selectedFrameRate.framesPerSecond,
-				audioCodec: selectedAudioCodec,
-				recordMicrophoneEnabled: recordMicrophoneEnabled,
-				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
-				microphoneDeviceID: selectedMicrophoneDeviceID
-			)
+			if mode == .recording {
+				try await captureManager.startManualRecording(
+					contentFilter: contentFilter,
+					resolution: selectedResolution,
+					quality: selectedQuality,
+					frameRate: selectedFrameRate.framesPerSecond,
+					audioCodec: selectedAudioCodec,
+					container: selectedContainer,
+					recordMicrophoneEnabled: recordMicrophoneEnabled,
+					recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+					microphoneDeviceID: selectedMicrophoneDeviceID
+				)
+			} else {
+				try await captureManager.start(
+					contentFilter: contentFilter,
+					resolution: selectedResolution,
+					quality: selectedQuality,
+					frameRate: selectedFrameRate.framesPerSecond,
+					audioCodec: selectedAudioCodec,
+					recordMicrophoneEnabled: recordMicrophoneEnabled,
+					recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+					microphoneDeviceID: selectedMicrophoneDeviceID
+				)
+			}
+
+			guard captureStartIsCurrent(generation) else {
+				if mode == .recording {
+					if let recoveredURL = try? await captureManager.stopManualRecording() {
+						try? await addRecordedClip(at: recoveredURL)
+					}
+				} else {
+					_ = await captureManager.stop()
+				}
+				return
+			}
 			isCapturing = true
+			activeRecordingMode = mode
 			let settings = analyticsSettingsSnapshot
 			Task { await analytics.captureSessionStarted(reason: reason, settings: settings) }
 			automaticRestartFailureCount = 0
@@ -800,7 +1040,9 @@ final class AppState: ObservableObject {
 			}
 			automaticCaptureRetryTask?.cancel()
 		} catch {
+			guard captureGeneration == generation, !Task.isCancelled else { return }
 			isCapturing = false
+			activeRecordingMode = nil
 			updateDiscordActivity(.idle)
 			let category = analyticsErrorCategory(error)
 			Task {
@@ -843,15 +1085,83 @@ final class AppState: ObservableObject {
 		}
 	}
 
-	private func stopCaptureAsync(reason: AnalyticsCaptureEndReason = .manual) async {
-		automaticCaptureRetryTask?.cancel()
-		await captureManager.stop()
+	private func captureStartIsCurrent(_ generation: UInt64) -> Bool {
+		captureGeneration == generation && !Task.isCancelled && !isDisplayOrSystemAsleep
+	}
+
+	private func cancelPendingCaptureStart() {
+		guard isStartingCapture else { return }
+		captureStartTask?.cancel()
+		if #available(macOS 14.0, *), let picker = contentPicker as? ContentSharingPicker {
+			picker.cancel()
+		}
+	}
+
+	private func resumeAlwaysRecordingIfNeeded() {
+		guard resumeAlwaysRecordingAfterStop else { return }
+		guard !isCapturing, !isCaptureTransitioning, !isDisplayOrSystemAsleep else { return }
+		resumeAlwaysRecordingAfterStop = false
+		guard selectedRecordingMode == .instantReplay, alwaysRecordEnabled else { return }
+		startCapture(reason: .wake)
+	}
+
+	private func beginReplayStop(reason: AnalyticsCaptureEndReason) {
+		guard activeRecordingMode == .instantReplay, isCapturing, !isStoppingCapture else { return }
+		cancelReplayRestart()
+		isStoppingCapture = true
 		isCapturing = false
-		Task { await analytics.captureSessionEnded(reason: reason) }
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
 		updateDiscordActivity(.idle)
+		captureStopTask = Task { await finishReplayStop(reason: reason) }
+	}
+
+	private func finishReplayStop(reason: AnalyticsCaptureEndReason) async {
+		_ = await captureManager.stop()
+		activeRecordingMode = nil
+		Task { await analytics.captureSessionEnded(reason: reason) }
 		if reason == .manual {
 			playRecordingEndFeedback()
 		}
+		captureStopTask = nil
+		isStoppingCapture = false
+		isRestartingCapture = false
+		resumeAlwaysRecordingIfNeeded()
+	}
+
+	private func beginManualRecordingStop(reason: AnalyticsCaptureEndReason) {
+		guard activeRecordingMode == .recording, isCapturing, !isStoppingCapture else { return }
+		isStoppingCapture = true
+		isCapturing = false
+		automaticCaptureRetryTask?.cancel()
+		automaticCaptureRetryTask = nil
+		updateDiscordActivity(.idle)
+		captureStopTask = Task { await finishManualRecording(reason: reason) }
+	}
+
+	private func finishManualRecording(reason: AnalyticsCaptureEndReason) async {
+		do {
+			let url = try await captureManager.stopManualRecording()
+			try await addRecordedClip(at: url)
+			if reason == .manual {
+				playRecordingEndFeedback()
+			}
+		} catch {
+			AppLog.error(.app, "Failed to finish recording:", error)
+			playErrorFeedback()
+		}
+
+		Task { await analytics.captureSessionEnded(reason: reason) }
+		activeRecordingMode = nil
+		captureStopTask = nil
+		isStoppingCapture = false
+	}
+
+	private func addRecordedClip(at url: URL) async throws {
+		let clipDuration = try await resolvedClipDuration(for: url)
+		let clip = try await clipLibrary.addClip(url: url, duration: clipDuration)
+		lastClip = clip
+		refreshStorageWarning()
 	}
 
 	/// Presents the macOS content picker and returns the chosen filter, boxed so it
@@ -865,30 +1175,64 @@ final class AppState: ObservableObject {
 	}
 
 	private func restartCaptureSilently() {
-		guard isCapturing else { return }
-		if isDisplayOrSystemAsleep {
-			return
+		guard isCapturing,
+		      activeRecordingMode == .instantReplay,
+		      !isStoppingCapture,
+		      !isDisplayOrSystemAsleep
+		else { return }
+
+		replayRestartGeneration &+= 1
+		let generation = replayRestartGeneration
+		replayRestartTask?.cancel()
+		isRestartingCapture = true
+		replayRestartTask = Task {
+			await performReplayRestart(generation: generation)
 		}
-		Task {
-			await captureManager.stop()
-			do {
-				try await captureManager.start(
-					contentFilter: lastContentFilter,
-					resolution: selectedResolution,
-					quality: selectedQuality,
-					frameRate: selectedFrameRate.framesPerSecond,
-					audioCodec: selectedAudioCodec,
-					recordMicrophoneEnabled: recordMicrophoneEnabled,
-					recordDesktopAudioEnabled: recordDesktopAudioEnabled,
-					microphoneDeviceID: selectedMicrophoneDeviceID
-				)
-			} catch {
-				isCapturing = false
-				updateDiscordActivity(.idle)
-				playErrorFeedback()
-				AppLog.error(.app, "Silent restart failed:", error)
+	}
+
+	private func performReplayRestart(generation: UInt64) async {
+		defer {
+			if replayRestartGeneration == generation {
+				replayRestartTask = nil
+				isRestartingCapture = false
 			}
 		}
+
+		_ = await captureManager.stop()
+		guard replayRestartGeneration == generation,
+		      !Task.isCancelled,
+		      isCapturing,
+		      activeRecordingMode == .instantReplay,
+		      !isDisplayOrSystemAsleep
+		else { return }
+
+		do {
+			try await captureManager.start(
+				contentFilter: lastContentFilter,
+				resolution: selectedResolution,
+				quality: selectedQuality,
+				frameRate: selectedFrameRate.framesPerSecond,
+				audioCodec: selectedAudioCodec,
+				recordMicrophoneEnabled: recordMicrophoneEnabled,
+				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				microphoneDeviceID: selectedMicrophoneDeviceID
+			)
+		} catch {
+			guard replayRestartGeneration == generation, !Task.isCancelled else { return }
+			isCapturing = false
+			activeRecordingMode = nil
+			updateDiscordActivity(.idle)
+			playErrorFeedback()
+			AppLog.error(.app, "Silent restart failed:", error)
+		}
+	}
+
+	private func cancelReplayRestart() {
+		guard replayRestartTask != nil || isRestartingCapture else { return }
+		replayRestartGeneration &+= 1
+		replayRestartTask?.cancel()
+		replayRestartTask = nil
+		isRestartingCapture = false
 	}
 
 	/// Clears `lastClip` if it points at a clip that was just deleted, so
@@ -900,6 +1244,7 @@ final class AppState: ObservableObject {
 	}
 
 	private func saveReplayAsync() async {
+		guard activeRecordingMode == .instantReplay, isCapturing else { return }
 		let requestedDuration = replayDuration
 		let requestedContainerID = selectedContainer.id
 		let startedAt = Date()
@@ -1033,18 +1378,25 @@ final class AppState: ObservableObject {
 	}
 
 	private func resolvedClipDuration(for url: URL) async throws -> TimeInterval {
-		let asset = AVURLAsset(url: url)
-		do {
-			let duration = try await asset.load(.duration)
-			let seconds = CMTimeGetSeconds(duration)
-			if seconds.isFinite, seconds > 0 {
-				return seconds
+		var lastError: Error = CaptureError.invalidDuration
+		for attempt in 0 ..< 20 {
+			do {
+				let duration = try await AVURLAsset(url: url).load(.duration)
+				let seconds = CMTimeGetSeconds(duration)
+				if seconds.isFinite, seconds > 0 {
+					return seconds
+				}
+				lastError = CaptureError.invalidDuration
+			} catch {
+				lastError = error
 			}
-		} catch {
-			AppLog.info(.app, "Couldnt read export clip duration", error)
-			throw error
+
+			if attempt < 19 {
+				try? await Task.sleep(nanoseconds: 250_000_000)
+			}
 		}
-		throw CaptureError.invalidDuration
+		AppLog.info(.app, "Couldnt read exported clip duration", lastError)
+		throw lastError
 	}
 
 	private func refreshPermissionsAsync() async {
@@ -1062,44 +1414,97 @@ final class AppState: ObservableObject {
 		isAsleep = true
 		automaticCaptureRetryTask?.cancel()
 		automaticCaptureRetryTask = nil
+		if selectedRecordingMode == .instantReplay, alwaysRecordEnabled {
+			resumeAlwaysRecordingAfterStop = true
+		}
+		if isStartingCapture {
+			cancelPendingCaptureStart()
+			return
+		}
 		if isCapturing {
-			Task {
-				await captureManager.stop()
-				isCapturing = false
-				await analytics.captureSessionEnded(reason: .sleep)
-				updateDiscordActivity(.idle)
+			if activeRecordingMode == .recording {
+				beginManualRecordingStop(reason: .sleep)
+			} else {
+				beginReplayStop(reason: .sleep)
 			}
 		}
 	}
 
 	func handleWake() {
-		guard isAsleep else { return }
-		AppLog.info(.app, "System waking up")
-		isAsleep = false
-		if alwaysRecordEnabled, !isDisplayOrSystemAsleep {
-			startCapture(reason: .wake)
+		if isAsleep {
+			AppLog.info(.app, "System waking up")
 		}
+		isAsleep = false
+		guard selectedRecordingMode == .instantReplay, alwaysRecordEnabled else { return }
+		resumeAlwaysRecordingAfterStop = true
+		resumeAlwaysRecordingIfNeeded()
 	}
 
-	private func handleCaptureInterrupted(_ error: Error) {
-		isCapturing = false
-		updateDiscordActivity(.idle)
-		if isDisplayOrSystemAsleep {
+	private func handleCaptureInterrupted(
+		_ error: Error,
+		recoveredRecordingURL: URL?
+	) {
+		// An intentional stop owns finalization and library insertion. A late
+		// framework callback must not clear that state or add the same file twice.
+		guard !isStoppingCapture else {
+			AppLog.info(.app, "Ignoring capture interruption during intentional stop")
 			return
 		}
-		if !alwaysRecordEnabled {
+		let interruptedMode = activeRecordingMode
+			?? (isStartingCapture ? selectedRecordingMode : nil)
+		captureGeneration &+= 1
+		captureStartTask?.cancel()
+		captureStartTask = nil
+		cancelReplayRestart()
+		isCapturing = false
+		isStartingCapture = false
+		activeRecordingMode = nil
+		updateDiscordActivity(.idle)
+		let wasAsleep = isDisplayOrSystemAsleep
+		if !wasAsleep, (interruptedMode == .recording || !alwaysRecordEnabled) {
 			playErrorFeedback()
 		}
 		AppLog.error(.app, "Capture interrupted:", error)
 		let category = analyticsErrorCategory(error)
-		Task {
-			await analytics.captureInterrupted(category: category, retrying: true)
-			await analytics.captureSessionEnded(reason: .interrupted)
+		let shouldRetry = interruptedMode == .instantReplay && !wasAsleep
+
+		if let recoveredRecordingURL {
+			isStoppingCapture = true
+			captureStopTask = Task {
+				await finishRecoveredRecording(
+					at: recoveredRecordingURL,
+					analyticsCategory: category
+				)
+			}
+		} else {
+			Task {
+				await analytics.captureInterrupted(category: category, retrying: shouldRetry)
+				await analytics.captureSessionEnded(reason: .interrupted)
+			}
 		}
-		scheduleCaptureRetry()
+
+		if shouldRetry {
+			scheduleCaptureRetry()
+		}
+	}
+
+	private func finishRecoveredRecording(
+		at url: URL,
+		analyticsCategory: String
+	) async {
+		do {
+			try await addRecordedClip(at: url)
+		} catch {
+			AppLog.error(.app, "Failed to add recovered recording:", error)
+		}
+		await analytics.captureInterrupted(category: analyticsCategory, retrying: false)
+		await analytics.captureSessionEnded(reason: .interrupted)
+		captureStopTask = nil
+		isStoppingCapture = false
 	}
 
 	private func scheduleCaptureRetry() {
+		guard selectedRecordingMode == .instantReplay else { return }
 		automaticCaptureRetryTask?.cancel()
 		automaticCaptureRetryTask = Task { @MainActor [weak self] in
 			guard let self else { return }
@@ -1108,7 +1513,10 @@ final class AppState: ObservableObject {
 			if self.isDisplayOrSystemAsleep {
 				return
 			}
-			if !self.isCapturing {
+			if self.selectedRecordingMode == .instantReplay,
+			   !self.isCapturing,
+			   !self.isCaptureTransitioning
+			{
 				self.startCapture(reason: .retry)
 			}
 		}
@@ -1173,8 +1581,16 @@ final class AppState: ObservableObject {
 	private func updateGlobalHotkeys() {
 		hotkeyManager.updateHotkeys(
 			saveReplay: hotkey,
-			recordToggle: startRecordingHotkey
+			startRecording: startRecordingHotkey,
+			stopRecording: stopRecordingHotkey
 		)
+	}
+
+	private func rejectHotkeyChange(message: String, revert: () -> Void) {
+		isRestoringSettings = true
+		revert()
+		isRestoringSettings = false
+		hotkeyConflictMessage = message
 	}
 
 	private func persistSettings() {
@@ -1186,8 +1602,10 @@ final class AppState: ObservableObject {
 				frameRate: selectedFrameRate.framesPerSecond,
 				containerID: selectedContainer.id,
 				audioCodecID: selectedAudioCodec.id,
+				recordingModeID: selectedRecordingMode.id,
 				hotkey: hotkey,
 				startRecordingHotkey: startRecordingHotkey,
+				stopRecordingHotkey: stopRecordingHotkey,
 				alwaysRecordEnabled: alwaysRecordEnabled,
 				saveFeedbackEnabled: saveFeedbackEnabled,
 				saveFeedbackVolume: saveFeedbackVolume,

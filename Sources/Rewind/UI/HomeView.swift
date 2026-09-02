@@ -1,3 +1,4 @@
+@preconcurrency import AVFoundation
 import AVKit
 import SwiftUI
 
@@ -18,64 +19,69 @@ struct HomeView: View {
 	}
 
 	var body: some View {
-		NavigationSplitView {
-			List(selection: $selectedCategory) {
-				NavigationLink(value: "all") {
-					Label("All Clips", systemImage: "square.grid.2x2")
-				}
-				NavigationLink(value: "favorites") {
-					Label("Favorites", systemImage: "heart")
-				}
-			}
-			.navigationTitle("Library")
-			.frame(minWidth: 150)
-		} content: {
-			ScrollView {
-				if filteredClips.isEmpty {
-					Text(selectedCategory == "favorites" ? "No favorites yet." : "No clips yet.")
-						.foregroundStyle(.secondary)
-						.padding()
-				} else {
-					LazyVGrid(columns: columns, spacing: 16) {
-						ForEach(filteredClips) { clip in
-							Button {
-								selectedClip = clip
-								appState.trackClipAction(action: "open")
-							} label: {
-								ClipCard(clip: clip, onFavorite: {
-									appState.trackClipAction(
-										action: "favorite",
-										result: clip.isFavorite ? "disabled" : "enabled"
-									)
-									appState.clipLibrary.toggleFavorite(clip: clip)
-								}, onDelete: {
-									if selectedClip?.id == clip.id {
-										selectedClip = nil
-									}
-									Task { await appState.clipLibrary.deleteClip(clip) }
-									appState.clipWasDeleted(clip)
-									appState.trackClipAction(action: "delete", result: "requested")
-								})
-								.overlay(
-									RoundedRectangle(cornerRadius: 8)
-										.stroke(selectedClip?.id == clip.id ? Color.accentColor : Color.clear, lineWidth: 3)
-								)
-							}
-							.buttonStyle(.plain)
-						}
+		VStack(spacing: 0) {
+			RecordingControlBar(appState: appState)
+			Divider()
+
+			NavigationSplitView {
+				List(selection: $selectedCategory) {
+					NavigationLink(value: "all") {
+						Label("All Clips", systemImage: "square.grid.2x2")
 					}
-					.padding()
+					NavigationLink(value: "favorites") {
+						Label("Favorites", systemImage: "heart")
+					}
 				}
-			}
-			.navigationTitle(selectedCategory == "favorites" ? "Favorites" : "All Clips")
-			.frame(minWidth: 300)
-		} detail: {
-			if let clip = selectedClip {
-				TrimEditorView(clip: clip, appState: appState)
-					.id(clip.id)
-			} else {
-				Text("Select a clip to view and edit.")
-					.foregroundStyle(.secondary)
+				.navigationTitle("Library")
+				.frame(minWidth: 150)
+			} content: {
+				ScrollView {
+					if filteredClips.isEmpty {
+						Text(selectedCategory == "favorites" ? "No favorites yet." : "No clips yet.")
+							.foregroundStyle(.secondary)
+							.padding()
+					} else {
+						LazyVGrid(columns: columns, spacing: 16) {
+							ForEach(filteredClips) { clip in
+								Button {
+									selectedClip = clip
+									appState.trackClipAction(action: "open")
+								} label: {
+									ClipCard(clip: clip, onFavorite: {
+										appState.trackClipAction(
+											action: "favorite",
+											result: clip.isFavorite ? "disabled" : "enabled"
+										)
+										appState.clipLibrary.toggleFavorite(clip: clip)
+									}, onDelete: {
+										if selectedClip?.id == clip.id {
+											selectedClip = nil
+										}
+										Task { await appState.clipLibrary.deleteClip(clip) }
+										appState.clipWasDeleted(clip)
+										appState.trackClipAction(action: "delete", result: "requested")
+									})
+									.overlay(
+										RoundedRectangle(cornerRadius: 8)
+											.stroke(selectedClip?.id == clip.id ? Color.accentColor : Color.clear, lineWidth: 3)
+									)
+								}
+								.buttonStyle(.plain)
+							}
+						}
+						.padding()
+					}
+				}
+				.navigationTitle(selectedCategory == "favorites" ? "Favorites" : "All Clips")
+				.frame(minWidth: 300)
+			} detail: {
+				if let clip = selectedClip {
+					TrimEditorView(clip: clip, appState: appState)
+						.id(clip.id)
+				} else {
+					Text("Select a clip to view and edit.")
+						.foregroundStyle(.secondary)
+				}
 			}
 		}
 		.onChange(of: appState.clipToOpen?.id) {
@@ -91,6 +97,69 @@ struct HomeView: View {
 		selectedCategory = "all"
 		selectedClip = clip
 		appState.clipToOpen = nil
+	}
+}
+
+private struct RecordingControlBar: View {
+	@ObservedObject var appState: AppState
+
+	var body: some View {
+		HStack(spacing: 12) {
+			Picker("Mode", selection: $appState.selectedRecordingMode) {
+				ForEach(RecordingMode.options) { mode in
+					Text(mode.label).tag(mode)
+				}
+			}
+			.pickerStyle(.segmented)
+			.frame(width: 250)
+			.disabled(appState.isCapturing || appState.isCaptureTransitioning)
+
+			Button(primaryButtonTitle) {
+				appState.toggleCapture()
+			}
+			.buttonStyle(.borderedProminent)
+			.disabled(primaryButtonDisabled)
+
+			if appState.selectedRecordingMode == .instantReplay {
+				Button(appState.isSavingReplay ? "Saving Replay…" : "Save Last \(Int(appState.replayDuration).formattedDuration)") {
+					appState.saveReplay()
+				}
+				.disabled(!appState.isCapturing || appState.isCaptureTransitioning || appState.isSavingReplay)
+			}
+
+			Spacer()
+
+			if appState.isStoppingCapture || appState.isRestartingCapture {
+				ProgressView()
+					.controlSize(.small)
+			} else if appState.isCapturing {
+				Label(
+					appState.selectedRecordingMode == .recording ? "Recording" : "Replay Buffer Active",
+					systemImage: "record.circle.fill"
+				)
+				.foregroundStyle(.red)
+				.font(.callout.weight(.medium))
+			}
+		}
+		.padding(.horizontal, 14)
+		.padding(.vertical, 10)
+		.background(.bar)
+	}
+
+	private var primaryButtonTitle: String {
+		if appState.isStartingCapture { return "Starting…" }
+		if appState.isRestartingCapture { return "Applying Settings…" }
+		if appState.isStoppingCapture {
+			return appState.selectedRecordingMode == .recording ? "Saving…" : "Stopping…"
+		}
+		if appState.selectedRecordingMode == .recording {
+			return appState.isCapturing ? "Stop & Save" : "Start Recording"
+		}
+		return appState.isCapturing ? "Stop Replay Buffer" : "Start Replay Buffer"
+	}
+
+	private var primaryButtonDisabled: Bool {
+		appState.isCaptureTransitioning
 	}
 }
 
@@ -353,9 +422,20 @@ struct TrimEditorView: View {
 
 		uploadTask = Task { @MainActor in
 			do {
+				let credentials: StreamableCredentials?
+				switch provider.authentication {
+				case .none:
+					credentials = nil
+				case .streamableBasic:
+					guard let storedCredentials = try await StreamableCredentialStore.shared.load() else {
+						throw ClipUploadError.credentialsRequired
+					}
+					credentials = storedCredentials
+				}
 				let link = try await ClipUploader.shared.upload(
 					clipAt: url,
 					provider: provider,
+					credentials: credentials,
 					expirationID: provider.supportsExpiration ? uploadExpiration : nil
 				) { fraction in
 					Task { @MainActor in uploadProgress = fraction }

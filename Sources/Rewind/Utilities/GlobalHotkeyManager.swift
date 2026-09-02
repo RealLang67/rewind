@@ -7,29 +7,37 @@ final class GlobalHotkeyManager {
 
 	private let hotKeySignature = OSType(0x5257_4E44) // "RWND"
 	private let saveReplayHotKeyId: UInt32 = 1
-	private let recordToggleHotKeyId: UInt32 = 2
+	private let startRecordingHotKeyId: UInt32 = 2
+	private let stopRecordingHotKeyId: UInt32 = 3
 	private var saveReplayHotKeyRef: EventHotKeyRef?
-	private var recordToggleHotKeyRef: EventHotKeyRef?
+	private var startRecordingHotKeyRef: EventHotKeyRef?
+	private var stopRecordingHotKeyRef: EventHotKeyRef?
 	private var eventHandler: EventHandlerRef?
 	private var saveReplayHotkey: Hotkey = .default
-	private var recordToggleHotkey: Hotkey = .startRecordingDefault
+	private var startRecordingHotkey: Hotkey = .startRecordingDefault
+	private var stopRecordingHotkey: Hotkey = .stopRecordingDefault
 	private var onSaveReplay: (() -> Void)?
-	private var onRecordToggle: (() -> Void)?
+	private var onStartRecording: (() -> Void)?
+	private var onStopRecording: (() -> Void)?
 
 	func configureActions(
 		onSaveReplay: (() -> Void)?,
-		onRecordToggle: (() -> Void)?
+		onStartRecording: (() -> Void)?,
+		onStopRecording: (() -> Void)?
 	) {
 		self.onSaveReplay = onSaveReplay
-		self.onRecordToggle = onRecordToggle
+		self.onStartRecording = onStartRecording
+		self.onStopRecording = onStopRecording
 	}
 
 	func register(
 		saveReplayHotkey: Hotkey = .default,
-		recordToggleHotkey: Hotkey = .startRecordingDefault
+		startRecordingHotkey: Hotkey = .startRecordingDefault,
+		stopRecordingHotkey: Hotkey = .stopRecordingDefault
 	) {
 		self.saveReplayHotkey = saveReplayHotkey
-		self.recordToggleHotkey = recordToggleHotkey
+		self.startRecordingHotkey = startRecordingHotkey
+		self.stopRecordingHotkey = stopRecordingHotkey
 		unregister()
 
 		var eventType = EventTypeSpec(
@@ -67,13 +75,23 @@ final class GlobalHotkeyManager {
 			actionName: "save replay"
 		)
 		registerHotKey(
-			recordToggleHotkey,
-			id: recordToggleHotKeyId,
-			store: &recordToggleHotKeyRef,
-			actionName: "record toggle"
+			startRecordingHotkey,
+			id: startRecordingHotKeyId,
+			store: &startRecordingHotKeyRef,
+			actionName: "start recording"
+		)
+		registerHotKey(
+			stopRecordingHotkey,
+			id: stopRecordingHotKeyId,
+			store: &stopRecordingHotKeyRef,
+			actionName: "stop recording"
 		)
 
-		if saveReplayHotKeyRef == nil, recordToggleHotKeyRef == nil, let eventHandler {
+		if saveReplayHotKeyRef == nil,
+		   startRecordingHotKeyRef == nil,
+		   stopRecordingHotKeyRef == nil,
+		   let eventHandler
+		{
 			RemoveEventHandler(eventHandler)
 			self.eventHandler = nil
 		}
@@ -85,9 +103,14 @@ final class GlobalHotkeyManager {
 			self.saveReplayHotKeyRef = nil
 		}
 
-		if let recordToggleHotKeyRef {
-			UnregisterEventHotKey(recordToggleHotKeyRef)
-			self.recordToggleHotKeyRef = nil
+		if let startRecordingHotKeyRef {
+			UnregisterEventHotKey(startRecordingHotKeyRef)
+			self.startRecordingHotKeyRef = nil
+		}
+
+		if let stopRecordingHotKeyRef {
+			UnregisterEventHotKey(stopRecordingHotKeyRef)
+			self.stopRecordingHotKeyRef = nil
 		}
 
 		if let eventHandler {
@@ -96,8 +119,12 @@ final class GlobalHotkeyManager {
 		}
 	}
 
-	func updateHotkeys(saveReplay: Hotkey, recordToggle: Hotkey) {
-		register(saveReplayHotkey: saveReplay, recordToggleHotkey: recordToggle)
+	func updateHotkeys(saveReplay: Hotkey, startRecording: Hotkey, stopRecording: Hotkey) {
+		register(
+			saveReplayHotkey: saveReplay,
+			startRecordingHotkey: startRecording,
+			stopRecordingHotkey: stopRecording
+		)
 	}
 
 	private func registerHotKey(
@@ -152,8 +179,10 @@ final class GlobalHotkeyManager {
 		switch hotKeyID.id {
 		case saveReplayHotKeyId:
 			onSaveReplay?()
-		case recordToggleHotKeyId:
-			onRecordToggle?()
+		case startRecordingHotKeyId:
+			onStartRecording?()
+		case stopRecordingHotKeyId:
+			onStopRecording?()
 		default:
 			return
 		}

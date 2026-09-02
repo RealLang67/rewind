@@ -1,13 +1,42 @@
 @preconcurrency import AVFoundation
 import Foundation
 
-/// Stitches buffered replay segments into a single composition and exports the
-/// requested trailing `seconds` as a passthrough clip in the chosen container.
+/// Stitches capture segments into one passthrough clip. Replay exports select a
+/// trailing duration; manual exports preserve the composition's full duration.
 struct ReplayExporter {
     func export(
         segments: [ReplaySegment],
         seconds: TimeInterval,
         container: CaptureContainer
+    ) async throws -> URL {
+        try await export(
+            segments: segments,
+            trailingSeconds: seconds,
+            container: container
+        )
+    }
+
+    /// Exports every frame in `segments` rather than applying the replay
+    /// buffer's trailing-duration trim. Manual recordings use this path so a
+    /// session is never capped by the replay buffer's five-minute window.
+    func exportAll(
+        segments: [ReplaySegment],
+        container: CaptureContainer,
+        outputFolder: URL? = nil
+    ) async throws -> URL {
+        try await export(
+            segments: segments,
+            trailingSeconds: nil,
+            container: container,
+            outputFolder: outputFolder
+        )
+    }
+
+    private func export(
+        segments: [ReplaySegment],
+        trailingSeconds: TimeInterval?,
+        container: CaptureContainer,
+        outputFolder: URL? = nil
     ) async throws -> URL {
         guard !segments.isEmpty else { throw CaptureError.noFramesCaptured }
 
@@ -78,17 +107,23 @@ struct ReplayExporter {
         guard totalSeconds.isFinite, totalSeconds > 0 else {
             throw CaptureError.noFramesCaptured
         }
-        let clipSeconds = max(0, min(seconds, totalSeconds))
+        let clipSeconds: TimeInterval
+        if let trailingSeconds {
+            clipSeconds = max(0, min(trailingSeconds, totalSeconds))
+        } else {
+            clipSeconds = totalSeconds
+        }
         guard clipSeconds > 0 else {
             throw CaptureError.noFramesCaptured
         }
         let timescale = cursor.timescale == 0 ? CMTimeScale(600) : cursor.timescale
         let startTime = CMTime(
-            seconds: max(totalSeconds - clipSeconds, 0), preferredTimescale: timescale)
+            seconds: trailingSeconds == nil ? 0 : max(totalSeconds - clipSeconds, 0),
+            preferredTimescale: timescale)
         let timeRange = CMTimeRange(
             start: startTime, duration: CMTime(seconds: clipSeconds, preferredTimescale: timescale))
 
-        let folder = ClipStorageLocation.current()
+        let folder = outputFolder ?? ClipStorageLocation.current()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let exportURL = folder.appendingPathComponent(
             "Rewind_\(UUID().uuidString).\(container.fileExtension)")

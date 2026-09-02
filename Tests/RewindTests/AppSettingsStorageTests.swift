@@ -23,8 +23,11 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.frameRate, AppSettings.default.frameRate)
 		XCTAssertEqual(settings.containerID, AppSettings.default.containerID)
 		XCTAssertEqual(settings.audioCodecID, AppSettings.default.audioCodecID)
+		XCTAssertEqual(settings.recordingModeID, RecordingMode.instantReplay.id)
+		XCTAssertEqual(settings.recordingMode, .instantReplay)
 		XCTAssertEqual(settings.hotkey, AppSettings.default.hotkey)
 		XCTAssertEqual(settings.startRecordingHotkey, AppSettings.default.startRecordingHotkey)
+		XCTAssertEqual(settings.stopRecordingHotkey, AppSettings.default.stopRecordingHotkey)
 		XCTAssertEqual(settings.alwaysRecordEnabled, AppSettings.default.alwaysRecordEnabled)
 		XCTAssertEqual(settings.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
 		XCTAssertEqual(settings.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
@@ -53,8 +56,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			frameRate: 30,
 			containerID: "mp4",
 			audioCodecID: CaptureAudioCodec.aac.id,
+			recordingModeID: RecordingMode.recording.id,
 			hotkey: Hotkey(keyCode: 0, modifiers: Hotkey.default.modifiers),
 			startRecordingHotkey: Hotkey.startRecordingDefault,
+			stopRecordingHotkey: Hotkey.stopRecordingDefault,
 			alwaysRecordEnabled: true,
 			saveFeedbackEnabled: false,
 			saveFeedbackVolume: 15,
@@ -92,8 +97,11 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.frameRate, expected.frameRate)
 		XCTAssertEqual(loaded.containerID, expected.containerID)
 		XCTAssertEqual(loaded.audioCodecID, expected.audioCodecID)
+		XCTAssertEqual(loaded.recordingModeID, expected.recordingModeID)
+		XCTAssertEqual(loaded.recordingMode, RecordingMode.recording)
 		XCTAssertEqual(loaded.hotkey, expected.hotkey)
 		XCTAssertEqual(loaded.startRecordingHotkey, expected.startRecordingHotkey)
+		XCTAssertEqual(loaded.stopRecordingHotkey, expected.stopRecordingHotkey)
 		XCTAssertEqual(loaded.alwaysRecordEnabled, expected.alwaysRecordEnabled)
 		XCTAssertEqual(loaded.saveFeedbackEnabled, expected.saveFeedbackEnabled)
 		XCTAssertEqual(loaded.saveFeedbackVolume, expected.saveFeedbackVolume)
@@ -126,8 +134,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			frameRate: 999,
 			containerID: "hhkkhhklllllll",
 			audioCodecID: "nope",
+			recordingModeID: "nope",
 			hotkey: Hotkey(keyCode: 999, modifiers: 0),
 			startRecordingHotkey: Hotkey(keyCode: 998, modifiers: 0),
+			stopRecordingHotkey: Hotkey(keyCode: 997, modifiers: 0),
 			alwaysRecordEnabled: true,
 			saveFeedbackEnabled: true,
 			saveFeedbackVolume: 300,
@@ -167,8 +177,10 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.frameRate, AppSettings.default.frameRate)
 		XCTAssertEqual(loaded.containerID, AppSettings.default.containerID)
 		XCTAssertEqual(loaded.audioCodecID, AppSettings.default.audioCodecID)
+		XCTAssertEqual(loaded.recordingModeID, AppSettings.default.recordingModeID)
 		XCTAssertEqual(loaded.hotkey, AppSettings.default.hotkey)
 		XCTAssertEqual(loaded.startRecordingHotkey, AppSettings.default.startRecordingHotkey)
+		XCTAssertEqual(loaded.stopRecordingHotkey, AppSettings.default.stopRecordingHotkey)
 		XCTAssertEqual(loaded.alwaysRecordEnabled, AppSettings.default.alwaysRecordEnabled)
 		XCTAssertEqual(loaded.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
 		XCTAssertEqual(loaded.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
@@ -199,8 +211,10 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.frameRate, AppSettings.default.frameRate)
 		XCTAssertEqual(loaded.containerID, AppSettings.default.containerID)
 		XCTAssertEqual(loaded.audioCodecID, AppSettings.default.audioCodecID)
+		XCTAssertEqual(loaded.recordingModeID, AppSettings.default.recordingModeID)
 		XCTAssertEqual(loaded.hotkey, AppSettings.default.hotkey)
 		XCTAssertEqual(loaded.startRecordingHotkey, AppSettings.default.startRecordingHotkey)
+		XCTAssertEqual(loaded.stopRecordingHotkey, AppSettings.default.stopRecordingHotkey)
 		XCTAssertEqual(loaded.alwaysRecordEnabled, AppSettings.default.alwaysRecordEnabled)
 		XCTAssertEqual(loaded.saveFeedbackEnabled, AppSettings.default.saveFeedbackEnabled)
 		XCTAssertEqual(loaded.saveFeedbackVolume, AppSettings.default.saveFeedbackVolume)
@@ -228,8 +242,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			frameRate: AppSettings.default.frameRate,
 			containerID: AppSettings.default.containerID,
 			audioCodecID: AppSettings.default.audioCodecID,
+			recordingModeID: AppSettings.default.recordingModeID,
 			hotkey: AppSettings.default.hotkey,
 			startRecordingHotkey: AppSettings.default.startRecordingHotkey,
+			stopRecordingHotkey: AppSettings.default.stopRecordingHotkey,
 			alwaysRecordEnabled: AppSettings.default.alwaysRecordEnabled,
 			saveFeedbackEnabled: AppSettings.default.saveFeedbackEnabled,
 			saveFeedbackVolume: AppSettings.default.saveFeedbackVolume,
@@ -283,8 +299,10 @@ final class AppSettingsStorageTests: XCTestCase {
 			frameRate: frameRate,
 			containerID: containerID,
 			audioCodecID: audioCodecID,
+			recordingModeID: AppSettings.default.recordingModeID,
 			hotkey: AppSettings.default.hotkey,
 			startRecordingHotkey: AppSettings.default.startRecordingHotkey,
+			stopRecordingHotkey: AppSettings.default.stopRecordingHotkey,
 			alwaysRecordEnabled: AppSettings.default.alwaysRecordEnabled,
 			saveFeedbackEnabled: AppSettings.default.saveFeedbackEnabled,
 			saveFeedbackVolume: AppSettings.default.saveFeedbackVolume,
@@ -356,7 +374,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.frameRate, nonDefaultFrameRate.framesPerSecond)
 	}
 
-	func testAbsentOptionResolvesToCurrentDefault() throws {
+	func testAbsentOptionsAndRecordingSettingsResolveToCurrentDefaults() throws {
 		var dict = try XCTUnwrap(
 			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
 		)
@@ -364,6 +382,8 @@ final class AppSettingsStorageTests: XCTestCase {
 		dict.removeValue(forKey: "frameRate")
 		dict.removeValue(forKey: "containerID")
 		dict.removeValue(forKey: "audioCodecID")
+		dict.removeValue(forKey: "recordingModeID")
+		dict.removeValue(forKey: "stopRecordingHotkey")
 		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
 
 		let loaded = AppSettingsStorage.load()
@@ -371,6 +391,21 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.frameRate, CaptureFrameRate.default.framesPerSecond)
 		XCTAssertEqual(loaded.containerID, CaptureContainer.default.id)
 		XCTAssertEqual(loaded.audioCodecID, CaptureAudioCodec.default.id)
+		XCTAssertEqual(loaded.recordingMode, RecordingMode.instantReplay)
+		XCTAssertEqual(loaded.stopRecordingHotkey, Hotkey.stopRecordingDefault)
+	}
+
+	func testUnknownRecordingModeClearsStoredSettings() throws {
+		var dict = try XCTUnwrap(
+			JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings.default)) as? [String: Any]
+		)
+		dict["recordingModeID"] = "future-mode"
+		UserDefaults.standard.set(try JSONSerialization.data(withJSONObject: dict), forKey: storageKey)
+
+		let loaded = AppSettingsStorage.load()
+
+		XCTAssertNil(UserDefaults.standard.object(forKey: storageKey))
+		XCTAssertEqual(loaded.recordingMode, RecordingMode.instantReplay)
 	}
 
 	func testLegacyDefaultValuedBlobIsNormalizedOnLoad() throws {

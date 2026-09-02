@@ -70,7 +70,11 @@ final class AppLifecycleController: NSObject {
 			object: nil
 		)
 
-		hotkeyManager.configureActions(onSaveReplay: nil, onRecordToggle: nil)
+		hotkeyManager.configureActions(
+			onSaveReplay: nil,
+			onStartRecording: nil,
+			onStopRecording: nil
+		)
 		hotkeyManager.unregister()
 		windowCoordinator?.closeLowStorageWarningIfNeeded()
 		cancellables.removeAll()
@@ -89,14 +93,18 @@ final class AppLifecycleController: NSObject {
 			onSaveReplay: { [weak appState] in
 				appState?.saveReplay()
 			},
-			onRecordToggle: { [weak appState] in
-				appState?.toggleCapture()
+			onStartRecording: { [weak appState] in
+				appState?.startRecording()
+			},
+			onStopRecording: { [weak appState] in
+				appState?.stopRecording()
 			}
 		)
 
 		hotkeyManager.register(
 			saveReplayHotkey: appState.hotkey,
-			recordToggleHotkey: appState.startRecordingHotkey
+			startRecordingHotkey: appState.startRecordingHotkey,
+			stopRecordingHotkey: appState.stopRecordingHotkey
 		)
 	}
 
