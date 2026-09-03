@@ -13,9 +13,10 @@ final class GlobalHotkeyManager {
 	private var startRecordingHotKeyRef: EventHotKeyRef?
 	private var stopRecordingHotKeyRef: EventHotKeyRef?
 	private var eventHandler: EventHandlerRef?
-	private var saveReplayHotkey: Hotkey = .default
+	private var saveReplayHotkey: Hotkey? = .default
 	private var startRecordingHotkey: Hotkey = .startRecordingDefault
 	private var stopRecordingHotkey: Hotkey = .stopRecordingDefault
+	private var isSuspended = false
 	private var onSaveReplay: (() -> Void)?
 	private var onStartRecording: (() -> Void)?
 	private var onStopRecording: (() -> Void)?
@@ -31,7 +32,7 @@ final class GlobalHotkeyManager {
 	}
 
 	func register(
-		saveReplayHotkey: Hotkey = .default,
+		saveReplayHotkey: Hotkey? = .default,
 		startRecordingHotkey: Hotkey = .startRecordingDefault,
 		stopRecordingHotkey: Hotkey = .stopRecordingDefault
 	) {
@@ -39,6 +40,7 @@ final class GlobalHotkeyManager {
 		self.startRecordingHotkey = startRecordingHotkey
 		self.stopRecordingHotkey = stopRecordingHotkey
 		unregister()
+		guard !isSuspended else { return }
 
 		var eventType = EventTypeSpec(
 			eventClass: OSType(kEventClassKeyboard),
@@ -52,8 +54,21 @@ final class GlobalHotkeyManager {
 				let manager = Unmanaged<GlobalHotkeyManager>
 					.fromOpaque(userData)
 					.takeUnretainedValue()
+				var hotKeyID = EventHotKeyID()
+				let status = GetEventParameter(
+					event,
+					EventParamName(kEventParamDirectObject),
+					EventParamType(typeEventHotKeyID),
+					nil,
+					MemoryLayout<EventHotKeyID>.size,
+					nil,
+					&hotKeyID
+				)
+				guard status == noErr else { return noErr }
+				let signature = hotKeyID.signature
+				let id = hotKeyID.id
 				Task { @MainActor in
-					manager.handleHotKey(event: event)
+					manager.handleHotKey(signature: signature, id: id)
 				}
 				return noErr
 			},
@@ -68,12 +83,14 @@ final class GlobalHotkeyManager {
 			return
 		}
 
-		registerHotKey(
-			saveReplayHotkey,
-			id: saveReplayHotKeyId,
-			store: &saveReplayHotKeyRef,
-			actionName: "save replay"
-		)
+		if let saveReplayHotkey {
+			registerHotKey(
+				saveReplayHotkey,
+				id: saveReplayHotKeyId,
+				store: &saveReplayHotKeyRef,
+				actionName: "save replay"
+			)
+		}
 		registerHotKey(
 			startRecordingHotkey,
 			id: startRecordingHotKeyId,
@@ -119,11 +136,30 @@ final class GlobalHotkeyManager {
 		}
 	}
 
-	func updateHotkeys(saveReplay: Hotkey, startRecording: Hotkey, stopRecording: Hotkey) {
+	func updateHotkeys(saveReplay: Hotkey?, startRecording: Hotkey, stopRecording: Hotkey) {
 		register(
 			saveReplayHotkey: saveReplay,
 			startRecordingHotkey: startRecording,
 			stopRecordingHotkey: stopRecording
+		)
+	}
+
+	/// Temporarily releases every global shortcut while a Settings row is
+	/// listening for a replacement. Updates made while suspended are remembered
+	/// and registered together when capture ends.
+	func suspend() {
+		guard !isSuspended else { return }
+		isSuspended = true
+		unregister()
+	}
+
+	func resume() {
+		guard isSuspended else { return }
+		isSuspended = false
+		register(
+			saveReplayHotkey: saveReplayHotkey,
+			startRecordingHotkey: startRecordingHotkey,
+			stopRecordingHotkey: stopRecordingHotkey
 		)
 	}
 
@@ -159,24 +195,10 @@ final class GlobalHotkeyManager {
 		}
 	}
 
-	private func handleHotKey(event: EventRef?) {
-		guard let event else { return }
+	private func handleHotKey(signature: OSType, id: UInt32) {
+		guard signature == hotKeySignature else { return }
 
-		var hotKeyID = EventHotKeyID()
-		let status = GetEventParameter(
-			event,
-			EventParamName(kEventParamDirectObject),
-			EventParamType(typeEventHotKeyID),
-			nil,
-			MemoryLayout<EventHotKeyID>.size,
-			nil,
-			&hotKeyID
-		)
-
-		guard status == noErr else { return }
-		guard hotKeyID.signature == hotKeySignature else { return }
-
-		switch hotKeyID.id {
+		switch id {
 		case saveReplayHotKeyId:
 			onSaveReplay?()
 		case startRecordingHotKeyId:

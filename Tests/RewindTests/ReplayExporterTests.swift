@@ -205,4 +205,42 @@ final class ReplayExporterTests: XCTestCase {
 		let duration = try await exportedAsset.load(.duration)
 		XCTAssertGreaterThan(duration.seconds, 0.4)
 	}
+
+	func testManualExportPreservesTheEntireRecording() async throws {
+		let directory = try makeTempDirectory()
+		defer { try? FileManager.default.removeItem(at: directory) }
+
+		let queue = DispatchQueue(label: "ReplayExporterTests.manualRecording")
+		let sourceURL = directory.appendingPathComponent("manual-source.mov")
+		let writer = ReplayWriter(queue: queue)
+		try writer.configure(
+			outputURL: sourceURL,
+			videoSize: CGSize(width: 320, height: 240),
+			includeAudio: false,
+			audioSettings: nil
+		)
+
+		for frame in 0 ..< 60 {
+			let pts = CMTime(value: Int64(frame), timescale: 60)
+			if let sample = makeVideoSampleBuffer(pts: pts) {
+				writer.appendVideo(sample)
+			}
+		}
+
+		let finishedURL = try await writer.finishWriting()
+		let sourceTime = try await AVURLAsset(url: finishedURL).load(.duration)
+		let sourceDuration = sourceTime.seconds
+		let exporter = ReplayExporter()
+		let outputURL = try await exporter.exportAll(
+			segments: [ReplaySegment(url: finishedURL, duration: sourceDuration)],
+			container: .mov,
+			outputFolder: directory
+		)
+
+		let exportedTime = try await AVURLAsset(url: outputURL).load(.duration)
+		let exportedDuration = exportedTime.seconds
+		XCTAssertEqual(outputURL.deletingLastPathComponent(), directory)
+		XCTAssertEqual(exportedDuration, sourceDuration, accuracy: 0.05)
+		XCTAssertGreaterThan(exportedDuration, 0.9)
+	}
 }

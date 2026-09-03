@@ -350,20 +350,37 @@ private struct CaptureSettingsPane: View {
 private struct HotkeysSettingsPane: View {
 	@ObservedObject var appState: AppState
 	let settingsLocked: Bool
+	@State private var activeRecorderID: String?
 
 	var body: some View {
 		Form {
 			Section {
-				HotkeyRecorderRow(title: "Start recording", hotkey: $appState.startRecordingHotkey)
-				HotkeyRecorderRow(title: "Stop recording", hotkey: $appState.stopRecordingHotkey)
+				HotkeyRecorderRow(
+					title: "Start recording",
+					recorderID: "start-recording",
+					hotkey: $appState.startRecordingHotkey,
+					activeRecorderID: $activeRecorderID
+				)
+				HotkeyRecorderRow(
+					title: "Stop recording",
+					recorderID: "stop-recording",
+					hotkey: $appState.stopRecordingHotkey,
+					activeRecorderID: $activeRecorderID
+				)
 				if appState.selectedRecordingMode == .instantReplay {
-					HotkeyRecorderRow(title: "Save last clip", hotkey: $appState.hotkey)
+					HotkeyRecorderRow(
+						title: "Save last clip",
+						recorderID: "save-replay",
+						hotkey: $appState.hotkey,
+						activeRecorderID: $activeRecorderID
+					)
 				}
 			} header: {
 				Text("Shortcuts")
 			} footer: {
 				VStack(alignment: .leading, spacing: 4) {
 					Text("Press Escape to cancel shortcut recording.")
+					Text("Shortcuts must include Command, Shift, Option, or Control.")
 					if let message = appState.hotkeyConflictMessage {
 						Text(message)
 							.foregroundStyle(.red)
@@ -373,6 +390,17 @@ private struct HotkeysSettingsPane: View {
 			.disabled(settingsLocked)
 		}
 		.formStyle(.grouped)
+		.onChange(of: activeRecorderID) {
+			if activeRecorderID == nil {
+				GlobalHotkeyManager.shared.resume()
+			} else {
+				GlobalHotkeyManager.shared.suspend()
+			}
+		}
+		.onDisappear {
+			activeRecorderID = nil
+			GlobalHotkeyManager.shared.resume()
+		}
 	}
 }
 
@@ -800,9 +828,14 @@ private struct PermissionCallout: View {
 
 private struct HotkeyRecorderRow: View {
 	let title: String
+	let recorderID: String
 	@Binding var hotkey: Hotkey
-	@State private var isRecording = false
+	@Binding var activeRecorderID: String?
 	@State private var monitor: Any?
+
+	private var isRecording: Bool {
+		activeRecorderID == recorderID
+	}
 
 	var body: some View {
 		LabeledContent(title) {
@@ -822,16 +855,29 @@ private struct HotkeyRecorderRow: View {
 			}
 		}
 		.onDisappear {
-			stopRecording()
+			if isRecording {
+				activeRecorderID = nil
+			}
+			removeMonitor()
+		}
+		.onChange(of: activeRecorderID) {
+			if isRecording {
+				installMonitor()
+			} else {
+				removeMonitor()
+			}
 		}
 	}
 
 	private func startRecording() {
-		isRecording = true
+		activeRecorderID = recorderID
+	}
+
+	private func installMonitor() {
 		if monitor != nil { return }
 
 		monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-			guard isRecording else { return event }
+			guard activeRecorderID == recorderID else { return event }
 
 			if event.keyCode == UInt16(kVK_Escape) {
 				stopRecording()
@@ -839,6 +885,10 @@ private struct HotkeyRecorderRow: View {
 			}
 
 			let relevantFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+			guard !relevantFlags.isEmpty else {
+				NSSound.beep()
+				return nil
+			}
 
 			hotkey = Hotkey(keyCode: UInt32(event.keyCode), modifiers: relevantFlags.carbonModifiers)
 			stopRecording()
@@ -847,7 +897,13 @@ private struct HotkeyRecorderRow: View {
 	}
 
 	private func stopRecording() {
-		isRecording = false
+		if activeRecorderID == recorderID {
+			activeRecorderID = nil
+		}
+		removeMonitor()
+	}
+
+	private func removeMonitor() {
 		if let monitor {
 			NSEvent.removeMonitor(monitor)
 			self.monitor = nil

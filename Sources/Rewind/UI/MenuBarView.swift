@@ -79,7 +79,7 @@ struct MenuBarView: View {
 		Menu("Resolution") {
 			resolutionMenuContent
 		}
-		.disabled(!appState.permissionState.screenRecording)
+		.disabled(!appState.permissionState.screenRecording || manualCaptureConfigurationLocked)
 
 		Menu("Quality") {
 			ForEach(QualityPreset.presets) { preset in
@@ -99,12 +99,12 @@ struct MenuBarView: View {
 				.toggleStyle(.checkbox)
 			}
 		}
-		.disabled(!appState.permissionState.screenRecording)
+		.disabled(!appState.permissionState.screenRecording || manualCaptureConfigurationLocked)
 
 		Menu("Microphone") {
 			microphoneMenuContent
 		}
-		.disabled(!AppState.supportsMicrophoneCapture)
+		.disabled(!AppState.supportsMicrophoneCapture || manualCaptureConfigurationLocked)
 
 		Button("Show in Finder") {
 			showLastClipInFinder()
@@ -161,6 +161,14 @@ struct MenuBarView: View {
 
 	private var recordingButtonDisabled: Bool {
 		appState.isCaptureTransitioning
+	}
+
+	/// Manual recording settings are fixed when Start is pressed. Disabling these
+	/// menus keeps their displayed values from diverging from the active session;
+	/// Instant Replay can still restart itself when a setting changes.
+	private var manualCaptureConfigurationLocked: Bool {
+		appState.selectedRecordingMode == .recording
+			&& (appState.isCapturing || appState.isCaptureTransitioning)
 	}
 
 	private var recordingButtonHotkey: Hotkey {

@@ -20,14 +20,14 @@ final class ClipUploadIntegrationTests: XCTestCase {
 		return url
 	}
 
-	func testEveryProviderReturnsAUsableLink() async throws {
+	func testEveryAnonymousProviderReturnsAUsableLink() async throws {
 		try XCTSkipUnless(isEnabled, "Set REWIND_UPLOAD_INTEGRATION=1 to run live upload checks")
 
 		let clipURL = try makeSampleClip()
 		defer { try? FileManager.default.removeItem(at: clipURL) }
 
 		var failures: [String] = []
-		for provider in ClipUploadProvider.providers {
+		for provider in ClipUploadProvider.providers where provider.authentication == .none {
 			do {
 				let link = try await ClipUploader.shared.upload(clipAt: clipURL, provider: provider)
 				XCTAssertEqual(link.scheme, "https", "\(provider.id) returned a non-https link")
@@ -39,5 +39,33 @@ final class ClipUploadIntegrationTests: XCTestCase {
 		}
 
 		XCTAssertTrue(failures.isEmpty, "Providers failed:\n" + failures.joined(separator: "\n"))
+	}
+
+	func testStreamableReturnsAUsableLink() async throws {
+		try XCTSkipUnless(isEnabled, "Set REWIND_UPLOAD_INTEGRATION=1 to run live upload checks")
+		let environment = ProcessInfo.processInfo.environment
+		guard let email = environment["REWIND_STREAMABLE_EMAIL"],
+		      let password = environment["REWIND_STREAMABLE_PASSWORD"]
+		else {
+			throw XCTSkip(
+				"Set REWIND_STREAMABLE_EMAIL and REWIND_STREAMABLE_PASSWORD to test Streamable"
+			)
+		}
+
+		let provider = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		let credentials = try StreamableCredentials(email: email, password: password)
+		let clipURL = try makeSampleClip()
+		defer { try? FileManager.default.removeItem(at: clipURL) }
+
+		let link = try await ClipUploader.shared.upload(
+			clipAt: clipURL,
+			provider: provider,
+			credentials: credentials
+		)
+		XCTAssertEqual(link.scheme, "https")
+		XCTAssertEqual(link.host, "streamable.com")
+		print("✅ streamable: \(link.absoluteString)")
 	}
 }

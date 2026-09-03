@@ -1,10 +1,11 @@
 import Foundation
 
-/// A file host that accepts an anonymous multipart POST — no account, no API key —
-/// and answers with a link to the uploaded clip.
+/// A file host that accepts a multipart POST and answers with a link to the
+/// uploaded clip. Most providers are anonymous; authenticated providers declare
+/// the credential type they require.
 ///
-/// Every host below was checked against its live endpoint before being added, so
-/// adding another one is normally just one more entry in `providers`.
+/// Live endpoint contracts are covered by opt-in integration tests because host
+/// APIs and limits can change independently of the app.
 struct ClipUploadProvider: Hashable, Identifiable, Sendable {
 	/// Where the clip link sits in a successful response body.
 	enum ResponseParser: Hashable, Sendable {
@@ -12,6 +13,13 @@ struct ClipUploadProvider: Hashable, Identifiable, Sendable {
 		case plainText
 		/// Walk object keys and array indices down to a string value.
 		case json(path: [JSONPathComponent])
+		/// Read a short share code from JSON and append it to a trusted base URL.
+		case jsonShareCode(path: [JSONPathComponent], baseURL: URL)
+	}
+
+	enum Authentication: Hashable, Sendable {
+		case none
+		case streamableBasic
 	}
 
 	enum JSONPathComponent: Hashable, Sendable {
@@ -37,6 +45,7 @@ struct ClipUploadProvider: Hashable, Identifiable, Sendable {
 	/// Text parts sent with every upload to this host.
 	let staticFields: [String: String]
 	let parser: ResponseParser
+	let authentication: Authentication
 	/// Checked before uploading so an oversized clip fails immediately instead of
 	/// after a long transfer. `nil` where the host publishes no limit we can rely on.
 	let maxFileSizeBytes: Int64?
@@ -53,6 +62,7 @@ struct ClipUploadProvider: Hashable, Identifiable, Sendable {
 		fileFieldName: String,
 		staticFields: [String: String] = [:],
 		parser: ResponseParser,
+		authentication: Authentication = .none,
 		maxFileSizeBytes: Int64? = nil,
 		expirationFieldName: String? = nil,
 		expirationOptions: [ExpirationOption] = []
@@ -65,6 +75,7 @@ struct ClipUploadProvider: Hashable, Identifiable, Sendable {
 		self.fileFieldName = fileFieldName
 		self.staticFields = staticFields
 		self.parser = parser
+		self.authentication = authentication
 		self.maxFileSizeBytes = maxFileSizeBytes
 		self.expirationFieldName = expirationFieldName
 		self.expirationOptions = expirationOptions
@@ -89,6 +100,7 @@ extension ClipUploadProvider {
 	/// The two hosts that predate the provider list; legacy settings migrate onto these.
 	static let catboxID = "catbox"
 	static let litterboxID = "litterbox"
+	static let streamableID = "streamable"
 
 	/// Ordered longest-lived first, so the most useful choice sits at the top of the menu.
 	static let providers: [ClipUploadProvider] = [
@@ -102,6 +114,20 @@ extension ClipUploadProvider {
 			staticFields: ["reqtype": "fileupload"],
 			parser: .plainText,
 			maxFileSizeBytes: 200 * 1_000_000
+		),
+		ClipUploadProvider(
+			id: streamableID,
+			displayName: "Streamable",
+			summary: "Video hosting with inline playback. Requires an account; "
+				+ "free uploads are limited to 250 MB and 10 minutes.",
+			homepage: URL(string: "https://streamable.com")!,
+			endpoint: URL(string: "https://api.streamable.com/upload")!,
+			fileFieldName: "file",
+			parser: .jsonShareCode(
+				path: [.key("shortcode")],
+				baseURL: URL(string: "https://streamable.com")!
+			),
+			authentication: .streamableBasic
 		),
 		ClipUploadProvider(
 			id: "quax",

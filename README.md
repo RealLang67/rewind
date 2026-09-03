@@ -5,6 +5,7 @@ Rewind is a free, open-source macOS app for instantly clipping highlights of you
 ## Features
 
 - **Instant Replay Capture:** Save the last X seconds of your gameplay instantly (customizable duration).
+- **Manual Recording:** Switch to Recording mode to capture everything from Start until Stop, like OBS.
 - **Always Record Mode:** Optionally record continuously so you never miss a moment.
 - **Customizable Quality:** Adjust resolution, frame rate, audio codec and container format to suit your needs.
 - **Global Hotkeys:** Configure custom hotkeys for starting/stopping recording and saving replays.

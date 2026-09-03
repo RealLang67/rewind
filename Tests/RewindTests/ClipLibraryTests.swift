@@ -148,4 +148,33 @@ final class ClipLibraryTests: XCTestCase {
 		XCTAssertEqual(saved.first?.id, clip.id)
 		XCTAssertEqual(saved.first?.duration, 27.5)
 	}
+
+	func testUpdateClipDurationPreservesClipIdentityAndTags() async throws {
+		let folder = try makeTempFolder()
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let fileURL = try makeClipFile(in: folder)
+		let original = Clip(
+			id: UUID(),
+			url: fileURL,
+			createdAt: Date(timeIntervalSince1970: 1_234),
+			duration: 30,
+			tags: ["favorite"]
+		)
+		let store = TestClipStore(fetchResult: .success([original]))
+		let library = ClipLibrary(store: store)
+		await waitForLoadCompletion(library)
+
+		let updated = try await library.updateClipDuration(original, duration: 12.5)
+
+		XCTAssertEqual(updated.id, original.id)
+		XCTAssertEqual(updated.url, original.url)
+		XCTAssertEqual(updated.createdAt, original.createdAt)
+		XCTAssertEqual(updated.tags, original.tags)
+		XCTAssertEqual(updated.duration, 12.5)
+		XCTAssertEqual(library.clips.first?.duration, 12.5)
+
+		let saved = await store.savedClips()
+		XCTAssertEqual(saved.last?.id, original.id)
+		XCTAssertEqual(saved.last?.duration, 12.5)
+	}
 }
