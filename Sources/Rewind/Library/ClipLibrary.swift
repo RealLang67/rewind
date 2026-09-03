@@ -28,6 +28,23 @@ final class ClipLibrary: ObservableObject {
 		return clip
 	}
 
+	/// Persists the duration of a clip rewritten in place (for example, after a
+	/// trim) while preserving its identity, creation date, URL, and tags.
+	func updateClipDuration(_ clip: Clip, duration: TimeInterval) async throws -> Clip {
+		let updatedClip = Clip(
+			id: clip.id,
+			url: clip.url,
+			createdAt: clip.createdAt,
+			duration: duration,
+			tags: clip.tags
+		)
+		let savedClip = try await store.save(clip: updatedClip)
+		if let index = clips.firstIndex(where: { $0.id == savedClip.id }) {
+			clips[index] = savedClip
+		}
+		return savedClip
+	}
+
 	func toggleFavorite(clip: Clip) {
 		var updatedClip = clip
 		if updatedClip.isFavorite {

@@ -64,7 +64,7 @@ actor CaptureManager {
     private var currentAudioCodec: CaptureAudioCodec = .default
     private var recordMicrophoneEnabled: Bool = false
     private var recordDesktopAudioEnabled: Bool = true
-    private var onCaptureInterrupted: (@MainActor (Error, URL?) -> Void)?
+    private var onCaptureInterrupted: (@MainActor (Error, URL?, UInt64?) -> Void)?
 
     /// thread-safe reference to current writer for use in callbacks
     /// sses lock-based synchronization so it can be safely accessed from nonisolated contexts
@@ -104,11 +104,12 @@ actor CaptureManager {
     }
 
     func setOnCaptureInterruptedHandler(
-        _ handler: (@MainActor (Error, URL?) -> Void)?
+        _ handler: (@MainActor (Error, URL?, UInt64?) -> Void)?
     ) {
         onCaptureInterrupted = handler
     }
 
+    @discardableResult
     func start(
         contentFilter: UncheckedSendable<SCContentFilter>? = nil,
         resolution: CaptureResolution? = nil,
@@ -118,7 +119,7 @@ actor CaptureManager {
         recordMicrophoneEnabled: Bool = false,
         recordDesktopAudioEnabled: Bool = true,
         microphoneDeviceID: String? = nil
-    ) async throws {
+    ) async throws -> UInt64 {
         try await startCapture(
             mode: .replay,
             contentFilter: contentFilter,
@@ -136,6 +137,7 @@ actor CaptureManager {
     /// Starts an OBS-style recording that runs until `stopManualRecording` is
     /// called. Unlike replay capture, this uses one long-lived writer and never
     /// rotates into the duration-limited replay buffer.
+    @discardableResult
     func startManualRecording(
         contentFilter: UncheckedSendable<SCContentFilter>? = nil,
         resolution: CaptureResolution? = nil,
@@ -146,7 +148,7 @@ actor CaptureManager {
         recordMicrophoneEnabled: Bool = false,
         recordDesktopAudioEnabled: Bool = true,
         microphoneDeviceID: String? = nil
-    ) async throws {
+    ) async throws -> UInt64 {
         try await startCapture(
             mode: .manual,
             contentFilter: contentFilter,
@@ -172,9 +174,13 @@ actor CaptureManager {
         recordDesktopAudioEnabled: Bool,
         microphoneDeviceID: String?,
         manualContainer: CaptureContainer?
-    ) async throws {
+    ) async throws -> UInt64 {
         guard !isRunning else { throw SessionError.alreadyActive }
         guard !isStarting, !isStopping else { throw SessionError.transitionInProgress }
+        // A completed manual stop stays available long enough for an interruption
+        // callback and a concurrent Stop request to agree on one owner. It is safe to
+        // release only when the next session actually begins.
+        manualStopTask = nil
         isStarting = true
         sessionMode = mode
         self.manualContainer = manualContainer
@@ -222,6 +228,7 @@ actor CaptureManager {
                 prepareStandbyWriter()
                 startRotationLoop()
             }
+            return startedGeneration
         } catch {
             await resetCaptureState()
             throw error
@@ -239,6 +246,18 @@ actor CaptureManager {
         }
         await stopCapturePipeline()
         return nil
+    }
+
+    /// Stops only the session identified by `sessionGeneration`. A cancelled
+    /// asynchronous start can finish after a newer replay restart has taken
+    /// ownership; in that case stale cleanup must leave the newer stream alone.
+    @discardableResult
+    func stopIfCurrent(sessionGeneration: UInt64) async -> URL? {
+        if isStarting {
+            await waitForStartToFinish()
+        }
+        guard captureGeneration == sessionGeneration else { return nil }
+        return await stop()
     }
 
     /// Stops a manual recording and returns one clip in the container selected
@@ -562,7 +581,7 @@ actor CaptureManager {
         }
 
         if let onCaptureInterrupted {
-            await onCaptureInterrupted(error, salvagedManualRecording)
+            await onCaptureInterrupted(error, salvagedManualRecording, generation)
         }
     }
 
@@ -591,8 +610,13 @@ actor CaptureManager {
         screenCapture.onAudioSampleBuffer = nil
         screenCapture.onMicSampleBuffer = nil
         currentWriter = nil
+        // Never reuse a writer once finalization has begun. finishWriting has a
+        // timeout, and AVAssetWriter may still invoke its completion later; that
+        // callback resets the ReplayWriter instance. Giving the next capture a
+        // fresh instance prevents a late completion from wiping its state.
+        let writerToFinish = replaceActiveWriter()
         await screenCapture.stopCapture()
-        if let url = try? await activeWriter.finishWriting() {
+        if let url = try? await writerToFinish.finishWriting() {
             removeFiles([url])
         }
         if let activeSegmentURL {
@@ -628,10 +652,11 @@ actor CaptureManager {
         screenCapture.onAudioSampleBuffer = nil
         screenCapture.onMicSampleBuffer = nil
         currentWriter = nil
+        let writerToFinish = replaceActiveWriter()
         await screenCapture.stopCapture()
 
         do {
-            let sourceURL = try await activeWriter.finishWriting()
+            let sourceURL = try await writerToFinish.finishWriting()
             try await waitForFileReady(at: sourceURL)
             let duration = try await loadDuration(of: sourceURL)
             let recordingURL = await exportOrPreserveManualRecording(
@@ -691,19 +716,29 @@ actor CaptureManager {
     }
 
     private func promoteManualMOV(_ sourceURL: URL) -> URL {
-        let folder = manualOutputFolder ?? sourceURL.deletingLastPathComponent()
-        let destination = folder.appendingPathComponent(
-            "Rewind_\(UUID().uuidString).mov"
-        )
-        do {
-            try FileManager.default.moveItem(at: sourceURL, to: destination)
-            return destination
-        } catch {
-            // The finalized source is still a valid recording. Returning it is
-            // safer than deleting the user's only copy after a rename failure.
-            Self.logError("Unable to rename finalized manual recording", error)
-            return sourceURL
+        let preferredFolder = manualOutputFolder ?? sourceURL.deletingLastPathComponent()
+        let defaultFolder = ClipStorageLocation.defaultFolder
+        let candidateFolders = preferredFolder == defaultFolder
+            ? [preferredFolder]
+            : [preferredFolder, defaultFolder]
+        let fileManager = FileManager.default
+
+        for folder in candidateFolders {
+            let destination = folder.appendingPathComponent(
+                "Rewind_\(UUID().uuidString).mov"
+            )
+            do {
+                try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+                try fileManager.moveItem(at: sourceURL, to: destination)
+                return destination
+            } catch {
+                Self.logError("Unable to move finalized manual recording", error)
+            }
         }
+
+        // The finalized source is still a valid recording. Returning it is safer
+        // than deleting the user's only copy when both durable locations fail.
+        return sourceURL
     }
 
     /// A writer timeout or metadata read failure does not prove that the file is
@@ -804,7 +839,6 @@ actor CaptureManager {
         captureGeneration = nil
         manualContainer = nil
         manualOutputFolder = nil
-        manualStopTask = nil
         finishStopping()
     }
 
@@ -814,6 +848,15 @@ actor CaptureManager {
         for url in urls {
             try? fm.removeItem(at: url)
         }
+    }
+
+    /// Detaches the writer owned by the ending session before awaiting any
+    /// asynchronous finalization callback. The replacement remains untouched if
+    /// the old callback arrives after its timeout.
+    private func replaceActiveWriter() -> ReplayWriter {
+        let previousWriter = activeWriter
+        activeWriter = ReplayWriter(queue: writerQueue)
+        return previousWriter
     }
 
     private func cleanupTemporaryLiveSegments() {

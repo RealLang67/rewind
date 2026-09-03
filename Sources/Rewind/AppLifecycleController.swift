@@ -102,7 +102,9 @@ final class AppLifecycleController: NSObject {
 		)
 
 		hotkeyManager.register(
-			saveReplayHotkey: appState.hotkey,
+			saveReplayHotkey: appState.selectedRecordingMode == .instantReplay
+				? appState.hotkey
+				: nil,
 			startRecordingHotkey: appState.startRecordingHotkey,
 			stopRecordingHotkey: appState.stopRecordingHotkey
 		)

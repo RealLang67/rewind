@@ -3,6 +3,10 @@ import Foundation
 enum ClipUploadError: LocalizedError, Equatable {
 	case clipUnreadable
 	case clipTooLarge(limit: Int64, actual: Int64)
+	case credentialsRequired
+	case credentialsNotAllowed
+	case unsafeAuthenticationTarget
+	case authenticationFailed
 	case server(status: Int, body: String)
 	case unreadableResponse
 	case badLink(String)
@@ -16,6 +20,14 @@ enum ClipUploadError: LocalizedError, Equatable {
 				ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 			}
 			return "This clip is \(format(actual)), but the host only accepts \(format(limit))."
+		case .credentialsRequired:
+			return "Add your Streamable account in Settings before uploading."
+		case .credentialsNotAllowed:
+			return "Credentials can't be sent to this upload provider."
+		case .unsafeAuthenticationTarget:
+			return "Rewind refused to send your Streamable credentials to an unexpected server."
+		case .authenticationFailed:
+			return "Streamable rejected that email or password. Update your account in Settings and try again."
 		case let .server(status, body):
 			let detail = body.trimmingCharacters(in: .whitespacesAndNewlines).prefix(140)
 			if detail.isEmpty {
@@ -40,8 +52,8 @@ final class ClipUploader: @unchecked Sendable {
 	private let session: URLSession
 	private let chunkSize: Int
 
-	init(session: URLSession = .shared, chunkSize: Int = 1 << 20) {
-		self.session = session
+	init(session: URLSession? = nil, chunkSize: Int = 1 << 20) {
+		self.session = session ?? Self.makeSession()
 		self.chunkSize = chunkSize
 	}
 
@@ -51,9 +63,14 @@ final class ClipUploader: @unchecked Sendable {
 	func upload(
 		clipAt clipURL: URL,
 		provider: ClipUploadProvider,
+		credentials: StreamableCredentials? = nil,
 		expirationID: String? = nil,
 		onProgress: @escaping @Sendable (Double) -> Void = { _ in }
 	) async throws -> URL {
+		let authorization = try Self.authorizationHeader(
+			for: provider,
+			credentials: credentials
+		)
 		let size = try clipSize(at: clipURL)
 		if let limit = provider.maxFileSizeBytes, size > limit {
 			throw ClipUploadError.clipTooLarge(limit: limit, actual: size)
@@ -76,8 +93,14 @@ final class ClipUploader: @unchecked Sendable {
 		// Several of these hosts turn away requests that arrive without a real
 		// User-Agent, so always send one.
 		request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+		if let authorization {
+			request.setValue(authorization, forHTTPHeaderField: "Authorization")
+		}
 
 		let (data, status) = try await send(request, bodyURL: bodyURL, onProgress: onProgress)
+		if status == 401, provider.authentication == .streamableBasic {
+			throw ClipUploadError.authenticationFailed
+		}
 		guard (200 ..< 300).contains(status) else {
 			throw ClipUploadError.server(status: status, body: String(decoding: data, as: UTF8.self))
 		}
@@ -97,6 +120,15 @@ final class ClipUploader: @unchecked Sendable {
 				throw ClipUploadError.unreadableResponse
 			}
 			raw = value
+		case let .jsonShareCode(path, baseURL):
+			guard let value = jsonString(at: path, in: data) else {
+				throw ClipUploadError.unreadableResponse
+			}
+			let code = value.trimmingCharacters(in: .whitespacesAndNewlines)
+			guard isSafeShareCode(code) else {
+				throw ClipUploadError.badLink(String(code.prefix(140)))
+			}
+			raw = baseURL.appendingPathComponent(code).absoluteString
 		}
 
 		let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -108,6 +140,53 @@ final class ClipUploader: @unchecked Sendable {
 			throw ClipUploadError.badLink(String(trimmed.prefix(140)))
 		}
 		return url
+	}
+
+	static func authorizationHeader(
+		for provider: ClipUploadProvider,
+		credentials: StreamableCredentials?
+	) throws -> String? {
+		switch provider.authentication {
+		case .none:
+			guard credentials == nil else {
+				throw ClipUploadError.credentialsNotAllowed
+			}
+			return nil
+		case .streamableBasic:
+			guard isStreamableUploadEndpoint(provider.endpoint) else {
+				throw ClipUploadError.unsafeAuthenticationTarget
+			}
+			guard let credentials else {
+				throw ClipUploadError.credentialsRequired
+			}
+			let value = Data("\(credentials.email):\(credentials.password)".utf8)
+				.base64EncodedString()
+			return "Basic \(value)"
+		}
+	}
+
+	private static func isStreamableUploadEndpoint(_ url: URL) -> Bool {
+		guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+			return false
+		}
+		return components.scheme?.lowercased() == "https"
+			&& components.host?.lowercased() == "api.streamable.com"
+			&& (components.port == nil || components.port == 443)
+			&& components.path == "/upload"
+			&& components.query == nil
+			&& components.user == nil
+			&& components.password == nil
+	}
+
+	private static func isSafeShareCode(_ value: String) -> Bool {
+		guard !value.isEmpty, value.utf8.count <= 64 else { return false }
+		return value.utf8.allSatisfy { byte in
+			(48 ... 57).contains(byte)
+				|| (65 ... 90).contains(byte)
+				|| (97 ... 122).contains(byte)
+				|| byte == 45
+				|| byte == 95
+		}
 	}
 
 	private static func jsonString(
@@ -205,6 +284,20 @@ final class ClipUploader: @unchecked Sendable {
 		return "Rewind/\(version) (+https://github.com/l1zov/rewind)"
 	}()
 
+	private static func makeSession() -> URLSession {
+		let configuration = URLSessionConfiguration.ephemeral
+		configuration.httpCookieStorage = nil
+		configuration.httpShouldSetCookies = false
+		configuration.urlCredentialStorage = nil
+		configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+		configuration.urlCache = nil
+		return URLSession(
+			configuration: configuration,
+			delegate: UploadRedirectDelegate(),
+			delegateQueue: nil
+		)
+	}
+
 	// - Transfer ---
 
 	private func send(
@@ -237,6 +330,26 @@ final class ClipUploader: @unchecked Sendable {
 			}
 		} onCancel: {
 			handle.cancel()
+		}
+	}
+}
+
+/// Authenticated upload bodies and headers are never replayed through a redirect.
+/// Anonymous providers retain URLSession's normal redirect behavior.
+private final class UploadRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+	func urlSession(
+		_: URLSession,
+		task: URLSessionTask,
+		willPerformHTTPRedirection _: HTTPURLResponse,
+		newRequest request: URLRequest,
+		completionHandler: @escaping @Sendable (URLRequest?) -> Void
+	) {
+		let carriesAuthorization = task.originalRequest?
+			.value(forHTTPHeaderField: "Authorization") != nil
+		if carriesAuthorization {
+			completionHandler(nil)
+		} else {
+			completionHandler(request)
 		}
 	}
 }

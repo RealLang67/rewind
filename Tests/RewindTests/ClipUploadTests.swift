@@ -25,6 +25,15 @@ final class ClipUploadTests: XCTestCase {
 		XCTAssertNil(ClipUploadProvider.provider(id: "not-a-host"))
 	}
 
+	func testStreamableProviderUsesAuthenticatedUploadEndpoint() throws {
+		let provider = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		XCTAssertEqual(provider.endpoint.absoluteString, "https://api.streamable.com/upload")
+		XCTAssertEqual(provider.fileFieldName, "file")
+		XCTAssertEqual(provider.authentication, .streamableBasic)
+	}
+
 	func testOnlyLitterboxOffersExpirationOptions() {
 		let withExpiration = ClipUploadProvider.providers.filter(\.supportsExpiration).map(\.id)
 		XCTAssertEqual(withExpiration, [ClipUploadProvider.litterboxID])
@@ -77,6 +86,28 @@ final class ClipUploadTests: XCTestCase {
 		XCTAssertEqual(link.absoluteString, "https://kappa.lol/ed3XwN")
 	}
 
+	func testStreamableShortcodeBecomesShareLink() throws {
+		let streamable = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		let data = Data(#"{"status":1,"shortcode":"aB12_z"}"#.utf8)
+		let link = try ClipUploader.parseLink(from: data, provider: streamable)
+		XCTAssertEqual(link.absoluteString, "https://streamable.com/aB12_z")
+	}
+
+	func testUnsafeStreamableShortcodesAreRejected() throws {
+		let streamable = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		for code in ["", "../account", "abc/def", "https://example.com", "abc?token=x"] {
+			let data = try JSONSerialization.data(withJSONObject: ["shortcode": code])
+			XCTAssertThrowsError(
+				try ClipUploader.parseLink(from: data, provider: streamable),
+				"\(code) should not be accepted as a Streamable shortcode"
+			)
+		}
+	}
+
 	func testMissingJSONPathIsRejected() {
 		let data = Data(#"{"success":false,"description":"file too big"}"#.utf8)
 		let parser = ClipUploadProvider.ResponseParser.json(
@@ -105,6 +136,94 @@ final class ClipUploadTests: XCTestCase {
 				),
 				"\(body) should not be accepted"
 			)
+		}
+	}
+
+	// - Authentication ---
+
+	func testStreamableBasicAuthorizationHeader() throws {
+		let streamable = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		let credentials = try StreamableCredentials(
+			email: "player@example.com",
+			password: "secret:with-colon"
+		)
+		let header = try ClipUploader.authorizationHeader(
+			for: streamable,
+			credentials: credentials
+		)
+		let expected = Data("player@example.com:secret:with-colon".utf8).base64EncodedString()
+		XCTAssertEqual(header, "Basic \(expected)")
+	}
+
+	func testStreamableCredentialsNormalizeEmail() throws {
+		let credentials = try StreamableCredentials(
+			email: "  player@example.com\n",
+			password: " secret "
+		)
+		XCTAssertEqual(credentials.email, "player@example.com")
+		XCTAssertEqual(credentials.password, " secret ")
+	}
+
+	func testInvalidStreamableCredentialsAreRejected() {
+		for email in ["", "not-an-email", "user:admin@example.com", "a @example.com"] {
+			XCTAssertThrowsError(
+				try StreamableCredentials(email: email, password: "secret"),
+				"\(email) should not be accepted"
+			)
+		}
+		XCTAssertThrowsError(
+			try StreamableCredentials(email: "player@example.com", password: "   ")
+		)
+	}
+
+	func testStreamableCredentialsAreRequired() throws {
+		let streamable = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.streamableID)
+		)
+		XCTAssertThrowsError(
+			try ClipUploader.authorizationHeader(for: streamable, credentials: nil)
+		) { error in
+			XCTAssertEqual(error as? ClipUploadError, .credentialsRequired)
+		}
+	}
+
+	func testCredentialsCannotBeSentToAnonymousProvider() throws {
+		let catbox = try XCTUnwrap(
+			ClipUploadProvider.provider(id: ClipUploadProvider.catboxID)
+		)
+		let credentials = try StreamableCredentials(
+			email: "player@example.com",
+			password: "secret"
+		)
+		XCTAssertThrowsError(
+			try ClipUploader.authorizationHeader(for: catbox, credentials: credentials)
+		) { error in
+			XCTAssertEqual(error as? ClipUploadError, .credentialsNotAllowed)
+		}
+	}
+
+	func testStreamableCredentialsCannotBeSentToAnotherHost() throws {
+		let provider = ClipUploadProvider(
+			id: "unsafe",
+			displayName: "Unsafe",
+			summary: "Test",
+			homepage: URL(string: "https://example.com")!,
+			endpoint: URL(string: "https://example.com/upload")!,
+			fileFieldName: "file",
+			parser: .plainText,
+			authentication: .streamableBasic
+		)
+		let credentials = try StreamableCredentials(
+			email: "player@example.com",
+			password: "never-send-this"
+		)
+		XCTAssertThrowsError(
+			try ClipUploader.authorizationHeader(for: provider, credentials: credentials)
+		) { error in
+			XCTAssertEqual(error as? ClipUploadError, .unsafeAuthenticationTarget)
+			XCTAssertFalse(error.localizedDescription.contains(credentials.password))
 		}
 	}
 

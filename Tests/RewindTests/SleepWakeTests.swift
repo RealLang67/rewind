@@ -22,4 +22,14 @@ final class SleepWakeTests: XCTestCase {
 		appState.startAlwaysRecording(isAutomatic: true)
 		XCTAssertFalse(appState.isCapturing)
 	}
+
+	func testTerminationPreventsANewRecordingStart() async {
+		let appState = AppState()
+
+		await appState.prepareForTermination()
+		appState.startRecording()
+
+		XCTAssertFalse(appState.isStartingCapture)
+		XCTAssertFalse(appState.isCapturing)
+	}
 }

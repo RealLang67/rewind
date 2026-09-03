@@ -76,7 +76,11 @@ struct HomeView: View {
 				.frame(minWidth: 300)
 			} detail: {
 				if let clip = selectedClip {
-					TrimEditorView(clip: clip, appState: appState)
+					TrimEditorView(
+						clip: clip,
+						appState: appState,
+						onClipUpdated: { selectedClip = $0 }
+					)
 						.id(clip.id)
 				} else {
 					Text("Select a clip to view and edit.")
@@ -221,10 +225,8 @@ struct ClipCard: View {
 		} message: {
 			Text("This permanently deletes the clip file from disk.")
 		}
-		.task(id: clip.id) {
-			if thumbnail == nil {
-				thumbnail = await ClipThumbnailCache.shared.thumbnail(for: clip)
-			}
+		.task(id: "\(clip.id.uuidString)-\(clip.duration)") {
+			thumbnail = await ClipThumbnailCache.shared.thumbnail(for: clip)
 		}
 	}
 }
@@ -232,6 +234,7 @@ struct ClipCard: View {
 struct TrimEditorView: View {
 	let clip: Clip
 	@ObservedObject var appState: AppState
+	let onClipUpdated: (Clip) -> Void
 	@State private var playerView = AVPlayerView()
 	@State private var isUploading = false
 	@State private var uploadSuccess = false
@@ -261,7 +264,7 @@ struct TrimEditorView: View {
 						}
 					}
 				}
-				.disabled(isTrimming)
+				.disabled(isTrimming || isUploading)
 			}
 			ToolbarItem {
 				HStack {
@@ -291,7 +294,7 @@ struct TrimEditorView: View {
 					} label: {
 						Label("Share", systemImage: "square.and.arrow.up")
 					}
-					.disabled(isUploading)
+					.disabled(isUploading || isTrimming)
 					.popover(isPresented: $showProgressPopover, arrowEdge: .bottom) {
 						VStack(spacing: 16) {
 							if uploadSuccess {
@@ -353,6 +356,13 @@ struct TrimEditorView: View {
 
 		isTrimming = true
 		Task {
+			var tempURL: URL?
+			defer {
+				if let tempURL {
+					try? FileManager.default.removeItem(at: tempURL)
+				}
+				isTrimming = false
+			}
 			if !start.isValid { start = .zero }
 			if !end.isValid {
 				end = (try? await asset.load(.duration)) ?? .zero
@@ -361,33 +371,62 @@ struct TrimEditorView: View {
 			let timeRange = CMTimeRange(start: start, end: end)
 
 			guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
-				isTrimming = false
 				return
 			}
 
-			let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(clip.url.pathExtension)
+			// Keep the replacement beside the original so FileManager can swap the
+			// files atomically, even when the user's clip folder is on another volume.
+			let replacementURL = clip.url.deletingLastPathComponent()
+				.appendingPathComponent(".Rewind_trim_\(UUID().uuidString)")
+				.appendingPathExtension(clip.url.pathExtension)
+			tempURL = replacementURL
 
-			exportSession.outputURL = tempURL
+			exportSession.outputURL = replacementURL
 			exportSession.outputFileType = clip.url.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
 			exportSession.timeRange = timeRange
 
 			await exportSession.export()
 			if exportSession.status == .completed {
 				do {
-					try? FileManager.default.removeItem(at: clip.url)
-					try FileManager.default.moveItem(at: tempURL, to: clip.url)
-					// The clip was rewritten in place, so its cached first frame
-					// is no longer the frame it starts on.
+					_ = try FileManager.default.replaceItemAt(
+						clip.url,
+						withItemAt: replacementURL
+					)
+					tempURL = nil
+
+					let rewrittenAsset = AVURLAsset(url: clip.url)
+					let rewrittenTime = try? await rewrittenAsset.load(.duration)
+					let rewrittenSeconds = rewrittenTime.map(CMTimeGetSeconds)
+					let requestedSeconds = CMTimeGetSeconds(timeRange.duration)
+					let duration = if let rewrittenSeconds,
+							rewrittenSeconds.isFinite,
+							rewrittenSeconds > 0
+					{
+						rewrittenSeconds
+					} else if requestedSeconds.isFinite, requestedSeconds > 0 {
+						requestedSeconds
+					} else {
+						clip.duration
+					}
 					ClipThumbnailCache.shared.invalidate(clipID: clip.id)
+					playerView.player = AVPlayer(url: clip.url)
+					let updatedClip = try await appState.clipLibrary.updateClipDuration(
+						clip,
+						duration: duration
+					)
+					appState.clipWasUpdated(updatedClip)
+					onClipUpdated(updatedClip)
 					appState.trackClipAction(action: "trim")
 				} catch {
-					print("Error saving trimmed clip: \(error)")
+					AppLog.error(.library, "Error saving trimmed clip:", error)
 					appState.trackClipAction(action: "trim", result: "failed")
 				}
 			} else {
+				if let error = exportSession.error {
+					AppLog.error(.library, "Unable to export trimmed clip:", error)
+				}
 				appState.trackClipAction(action: "trim", result: "failed")
 			}
-			isTrimming = false
 		}
 	}
 
