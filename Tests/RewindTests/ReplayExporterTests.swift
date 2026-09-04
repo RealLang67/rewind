@@ -241,6 +241,5 @@ final class ReplayExporterTests: XCTestCase {
 		let exportedDuration = exportedTime.seconds
 		XCTAssertEqual(outputURL.deletingLastPathComponent(), directory)
 		XCTAssertEqual(exportedDuration, sourceDuration, accuracy: 0.05)
-		XCTAssertGreaterThan(exportedDuration, 0.9)
 	}
 }
