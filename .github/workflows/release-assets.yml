@@ -1,0 +1,85 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build and upload Universal 2 assets
+    runs-on: macos-15
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Select Xcode 16.4
+        run: |
+          DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
+          if [[ ! -d "${DEVELOPER_DIR}" ]]; then
+            echo "Expected Xcode 16.4 at ${DEVELOPER_DIR}, but it is not installed on this runner." >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "${DEVELOPER_DIR}"
+          xcode-select --print-path
+          xcodebuild -version
+          swift --version
+
+      - name: Validate release version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag '${RELEASE_TAG}' is not a supported semantic version." >&2
+            exit 1
+          fi
+          echo "tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build Universal 2 package
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST || vars.POSTHOG_HOST }}
+        run: bash scripts/build-package.sh --version "${{ steps.version.outputs.version }}"
+
+      - name: Create release ZIP
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/Rewind.app \
+            "dist/Rewind-${{ steps.version.outputs.tag }}.zip"
+
+      - name: Verify release assets
+        run: |
+          EXECUTABLE="dist/Rewind.app/Contents/MacOS/Rewind"
+          DMG="dist/Rewind-${{ steps.version.outputs.tag }}.dmg"
+          INSTALLER_DMG="dist/Rewind-${{ steps.version.outputs.tag }}-installer.dmg"
+          ZIP="dist/Rewind-${{ steps.version.outputs.tag }}.zip"
+
+          lipo "${EXECUTABLE}" -verify_arch arm64 x86_64
+          lipo -info "${EXECUTABLE}"
+
+          for asset in "${DMG}" "${INSTALLER_DMG}" "${ZIP}"; do
+            if [[ ! -s "${asset}" ]]; then
+              echo "Expected release asset was not produced: ${asset}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload assets to the published GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release upload "${RELEASE_TAG}" \
+            "dist/Rewind-${RELEASE_TAG}.dmg" \
+            "dist/Rewind-${RELEASE_TAG}-installer.dmg" \
+            "dist/Rewind-${RELEASE_TAG}.zip" \
+            --clobber
