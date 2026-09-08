@@ -1,0 +1,61 @@
+name: Manual Universal 2 Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version for the test artifact (for example, 1.2.3 or 1.2.3-dev)"
+        required: true
+        default: "0.0.0-dev"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Package Universal 2 app
+    # macos-15 is a stable GitHub-hosted Apple Silicon image. Xcode 16.4 is a
+    # GA toolchain on the image and can cross-compile both macOS architectures.
+    runs-on: macos-15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          DEVELOPER_DIR="/Applications/Xcode_16.4.app/Contents/Developer"
+          if [[ ! -d "${DEVELOPER_DIR}" ]]; then
+            echo "Expected Xcode 16.4 at ${DEVELOPER_DIR}, but it is not installed on this runner." >&2
+            exit 1
+          fi
+          sudo xcode-select --switch "${DEVELOPER_DIR}"
+          xcode-select --print-path
+          xcodebuild -version
+          swift --version
+
+      - name: Build and package Universal 2 app
+        run: bash scripts/build-package.sh --version "${{ inputs.version }}"
+
+      - name: Verify main executable is Universal 2
+        run: |
+          EXECUTABLE="dist/Rewind.app/Contents/MacOS/Rewind"
+          if [[ ! -x "${EXECUTABLE}" ]]; then
+            echo "Expected app executable was not produced: ${EXECUTABLE}" >&2
+            exit 1
+          fi
+          lipo "${EXECUTABLE}" -verify_arch arm64 x86_64
+          lipo -info "${EXECUTABLE}"
+
+      - name: Create downloadable app archive
+        run: |
+          ARCHIVE="dist/Rewind-${{ inputs.version }}-universal2.zip"
+          ditto -c -k --sequesterRsrc --keepParent dist/Rewind.app "${ARCHIVE}"
+
+      - name: Upload Universal 2 app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rewind-${{ inputs.version }}-universal2
+          path: dist/Rewind-${{ inputs.version }}-universal2.zip
+          if-no-files-found: error

@@ -282,6 +282,25 @@ private struct CaptureSettingsPane: View {
 			}
 			.disabled(settingsLocked || manualCaptureConfigurationLocked)
 
+			Section("Voice clipping") {
+				LabeledContent {
+					Toggle("", isOn: $appState.voiceClipCommandEnabled)
+						.labelsHidden()
+						.toggleStyle(.switch)
+				} label: {
+					HelpLabel(
+						"Enable voice command (Beta)",
+						help: "Listens locally for “Hey Rewind, clip that” while Instant Replay is recording."
+					)
+				}
+
+				Text(appState.voiceClipCommandStatus)
+					.font(.footnote)
+					.foregroundStyle(.secondary)
+					.fixedSize(horizontal: false, vertical: true)
+			}
+			.disabled(settingsLocked || manualCaptureConfigurationLocked)
+
 			Section("Output") {
 				LabeledContent("Save location") {
 					HStack(spacing: 8) {

@@ -41,6 +41,7 @@ struct AppSettings: Codable {
 	var enabledUploadProviderIDs: [String]
 	var recordMicrophoneEnabled: Bool
 	var recordDesktopAudioEnabled: Bool
+	var voiceClipCommandEnabled: Bool
 	var captureTargetPromptEnabled: Bool
 	var microphoneDeviceID: String?
 	var outputDirectoryPath: String?
@@ -79,6 +80,7 @@ struct AppSettings: Codable {
 		enabledUploadProviderIDs: [],
 		recordMicrophoneEnabled: false,
 		recordDesktopAudioEnabled: true,
+		voiceClipCommandEnabled: false,
 		captureTargetPromptEnabled: true,
 		microphoneDeviceID: nil,
 		outputDirectoryPath: nil
@@ -122,6 +124,7 @@ struct AppSettings: Codable {
 		case litterboxEnabled
 		case recordMicrophoneEnabled
 		case recordDesktopAudioEnabled
+		case voiceClipCommandEnabled
 		case captureTargetPromptEnabled
 		case microphoneDeviceID
 		case outputDirectoryPath
@@ -161,6 +164,7 @@ struct AppSettings: Codable {
 		enabledUploadProviderIDs: [String],
 		recordMicrophoneEnabled: Bool,
 		recordDesktopAudioEnabled: Bool,
+		voiceClipCommandEnabled: Bool = false,
 		captureTargetPromptEnabled: Bool,
 		microphoneDeviceID: String?,
 		outputDirectoryPath: String?
@@ -198,6 +202,7 @@ struct AppSettings: Codable {
 		self.enabledUploadProviderIDs = enabledUploadProviderIDs
 		self.recordMicrophoneEnabled = recordMicrophoneEnabled
 		self.recordDesktopAudioEnabled = recordDesktopAudioEnabled
+		self.voiceClipCommandEnabled = voiceClipCommandEnabled
 		self.captureTargetPromptEnabled = captureTargetPromptEnabled
 		self.microphoneDeviceID = microphoneDeviceID
 		self.outputDirectoryPath = outputDirectoryPath
@@ -265,6 +270,7 @@ struct AppSettings: Codable {
 		}
 		recordMicrophoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordMicrophoneEnabled) ?? false
 		recordDesktopAudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .recordDesktopAudioEnabled) ?? true
+		voiceClipCommandEnabled = try container.decodeIfPresent(Bool.self, forKey: .voiceClipCommandEnabled) ?? false
 		captureTargetPromptEnabled = try container.decodeIfPresent(Bool.self, forKey: .captureTargetPromptEnabled) ?? true
 		microphoneDeviceID = try container.decodeIfPresent(String.self, forKey: .microphoneDeviceID)
 		outputDirectoryPath = try container.decodeIfPresent(String.self, forKey: .outputDirectoryPath)
@@ -311,6 +317,7 @@ struct AppSettings: Codable {
 		try container.encode(enabledUploadProviderIDs, forKey: .enabledUploadProviderIDs)
 		try container.encode(recordMicrophoneEnabled, forKey: .recordMicrophoneEnabled)
 		try container.encode(recordDesktopAudioEnabled, forKey: .recordDesktopAudioEnabled)
+		try container.encode(voiceClipCommandEnabled, forKey: .voiceClipCommandEnabled)
 		try container.encode(captureTargetPromptEnabled, forKey: .captureTargetPromptEnabled)
 		try container.encodeIfPresent(microphoneDeviceID, forKey: .microphoneDeviceID)
 		try container.encodeIfPresent(outputDirectoryPath, forKey: .outputDirectoryPath)

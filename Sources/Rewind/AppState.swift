@@ -141,6 +141,7 @@ final class AppState: ObservableObject {
 			}
 			persistSettings()
 			updateGlobalHotkeys()
+			updateVoiceClipCommandListening()
 			if selectedRecordingMode == .instantReplay, alwaysRecordEnabled {
 				startCapture(reason: .alwaysRecord)
 			}
@@ -428,6 +429,21 @@ final class AppState: ObservableObject {
 		}
 	}
 
+	@Published var voiceClipCommandEnabled = AppSettings.default.voiceClipCommandEnabled {
+		didSet {
+			guard !isRestoringSettings else { return }
+			guard voiceClipCommandEnabled != oldValue else { return }
+			persistSettings()
+			updateVoiceClipCommandListening()
+		}
+	}
+
+	@Published private(set) var voiceClipCommandState: VoiceCommandDetectorState = .stopped
+
+	var voiceClipCommandStatus: String {
+		voiceClipCommandState.userDescription
+	}
+
 	/// only affects the next manual start's picker prompt, so no capture restart here
 	@Published var captureTargetPromptEnabled = AppSettings.default.captureTargetPromptEnabled {
 		didSet {
@@ -513,6 +529,7 @@ final class AppState: ObservableObject {
 	private let discordRPCClient: DiscordRPCClient
 	private let analytics: any AnalyticsTracking
 	private let hotkeyManager: GlobalHotkeyManager
+	private let voiceCommandDetector: any VoiceCommandDetecting
 	private let soundFeedback = SoundFeedbackController()
 	private var storageMonitor: StorageMonitor!
 	private var discordActivityState: DiscordActivityState = .idle
@@ -525,8 +542,10 @@ final class AppState: ObservableObject {
 	private var captureStopTask: Task<Void, Never>?
 	private var replaySaveTask: Task<Void, Never>?
 	private var replayRestartTask: Task<Void, Never>?
+	private var voiceCommandStartTask: Task<Void, Never>?
 	private var captureGeneration: UInt64 = 0
 	private var replayRestartGeneration: UInt64 = 0
+	private var voiceCommandOperationGeneration: UInt64 = 0
 	private var resumeReplayAfterWake = false
 	private var isTerminating = false
 	private var activeCaptureSessionGeneration: UInt64?
@@ -558,18 +577,21 @@ final class AppState: ObservableObject {
 		clipLibrary: ClipLibrary = ClipLibrary(),
 		discordRPCClient: DiscordRPCClient = DiscordRPCClient(),
 		analytics: any AnalyticsTracking = NoopAnalytics(),
-		hotkeyManager: GlobalHotkeyManager = .shared
+		hotkeyManager: GlobalHotkeyManager = .shared,
+		voiceCommandDetector: (any VoiceCommandDetecting)? = nil
 	) {
 		self.captureManager = captureManager
 		self.clipLibrary = clipLibrary
 		self.discordRPCClient = discordRPCClient
 		self.analytics = analytics
 		self.hotkeyManager = hotkeyManager
+		self.voiceCommandDetector = voiceCommandDetector ?? AppleSpeechVoiceCommandDetector()
 
 		let dotaGSIAuthToken = UUID().uuidString
 		let dotaGSIServer = DotaGSIServer(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
 		self.dotaGSIServer = dotaGSIServer
 		gameDetector = GamePresenceDetector(dotaGSI: dotaGSIServer)
+
 		dotaGSIServer?.start()
 		Task.detached(priority: .utility) {
 			DotaGSIConfigInstaller.install(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)
@@ -624,6 +646,7 @@ final class AppState: ObservableObject {
 		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		voiceClipCommandEnabled = settings.voiceClipCommandEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
 		selectedMicrophoneDeviceID = settings.microphoneDeviceID
 		outputDirectoryPath = settings.outputDirectoryPath
@@ -649,6 +672,16 @@ final class AppState: ObservableObject {
 			}
 		}
 		storageMonitor.start()
+		// All stored dependencies, including the monitor initialized above, now
+		// have values, so these escaping closures may safely capture self.
+		self.voiceCommandDetector.onCommand = { [weak self] command in
+			guard let self, command == .saveReplay else { return }
+			self.saveReplay()
+		}
+		self.voiceCommandDetector.onStateChange = { [weak self] state in
+			self?.voiceClipCommandState = state
+		}
+		updateVoiceClipCommandListening()
 		Task {
 			await discordRPCClient.setEnabled(discordRPCEnabled)
 			self.publishDiscordPresenceWithRetry(for: self.discordActivityState)
@@ -698,6 +731,7 @@ final class AppState: ObservableObject {
 		enabledUploadProviderIDs = settings.enabledUploadProviderIDs
 		recordMicrophoneEnabled = settings.recordMicrophoneEnabled
 		recordDesktopAudioEnabled = settings.recordDesktopAudioEnabled
+		voiceClipCommandEnabled = settings.voiceClipCommandEnabled
 		captureTargetPromptEnabled = settings.captureTargetPromptEnabled
 		selectedMicrophoneDeviceID = settings.microphoneDeviceID
 		outputDirectoryPath = settings.outputDirectoryPath
@@ -716,6 +750,7 @@ final class AppState: ObservableObject {
 		} else {
 			restartCaptureSilently()
 		}
+		updateVoiceClipCommandListening()
 	}
 
 	func startCapture(isAutomatic: Bool = false) {
@@ -846,6 +881,10 @@ final class AppState: ObservableObject {
 			return
 		}
 		isTerminating = true
+		voiceCommandStartTask?.cancel()
+		voiceCommandStartTask = nil
+		voiceCommandDetector.stop()
+		voiceClipCommandState = .stopped
 		let pendingReplaySave = replaySaveTask
 		let pendingReplayRestart = replayRestartTask
 		resumeReplayAfterWake = false
@@ -996,6 +1035,7 @@ final class AppState: ObservableObject {
 			if captureGeneration == generation {
 				captureStartTask = nil
 				isStartingCapture = false
+				updateVoiceClipCommandListening()
 				resumeReplayAfterWakeIfNeeded()
 			}
 		}
@@ -1072,6 +1112,7 @@ final class AppState: ObservableObject {
 			}
 			isCapturing = true
 			activeRecordingMode = mode
+			updateVoiceClipCommandListening()
 			activeCaptureSessionGeneration = startedSessionGeneration
 			latestCaptureSessionGeneration = max(
 				latestCaptureSessionGeneration ?? 0,
@@ -1090,6 +1131,7 @@ final class AppState: ObservableObject {
 			guard captureGeneration == generation, !Task.isCancelled else { return }
 			isCapturing = false
 			activeRecordingMode = nil
+			updateVoiceClipCommandListening()
 			updateDiscordActivity(.idle)
 			let category = analyticsErrorCategory(error)
 			Task {
@@ -1164,6 +1206,7 @@ final class AppState: ObservableObject {
 		let pendingReplaySave = replaySaveTask
 		isStoppingCapture = true
 		isCapturing = false
+		updateVoiceClipCommandListening()
 		automaticCaptureRetryTask?.cancel()
 		automaticCaptureRetryTask = nil
 		updateDiscordActivity(.idle)
@@ -1194,6 +1237,7 @@ final class AppState: ObservableObject {
 		guard activeRecordingMode == .recording, isCapturing, !isStoppingCapture else { return }
 		isStoppingCapture = true
 		isCapturing = false
+		updateVoiceClipCommandListening()
 		automaticCaptureRetryTask?.cancel()
 		automaticCaptureRetryTask = nil
 		updateDiscordActivity(.idle)
@@ -1248,6 +1292,7 @@ final class AppState: ObservableObject {
 		let generation = replayRestartGeneration
 		replayRestartTask?.cancel()
 		isRestartingCapture = true
+		updateVoiceClipCommandListening()
 		let pendingReplaySave = replaySaveTask
 		replayRestartTask = Task {
 			await pendingReplaySave?.value
@@ -1260,6 +1305,7 @@ final class AppState: ObservableObject {
 			if replayRestartGeneration == generation {
 				replayRestartTask = nil
 				isRestartingCapture = false
+				updateVoiceClipCommandListening()
 			}
 		}
 
@@ -1313,6 +1359,7 @@ final class AppState: ObservableObject {
 			isCapturing = false
 			activeRecordingMode = nil
 			activeCaptureSessionGeneration = nil
+			updateVoiceClipCommandListening()
 			updateDiscordActivity(.idle)
 			playErrorFeedback()
 			AppLog.error(.app, "Silent restart failed:", error)
@@ -1509,6 +1556,7 @@ final class AppState: ObservableObject {
 
 	private func refreshPermissionsAsync() async {
 		permissionState = PermissionManager.currentState()
+		refreshVoiceClipCommandIfNeeded()
 		// If the user just granted Screen Recording (typically detected when the
 		// app becomes active again), relaunch to apply it.
 		if awaitingScreenGrant, permissionState.screenRecording {
@@ -1591,6 +1639,7 @@ final class AppState: ObservableObject {
 		isCapturing = false
 		isStartingCapture = false
 		activeRecordingMode = nil
+		updateVoiceClipCommandListening()
 		activeCaptureSessionGeneration = nil
 		updateDiscordActivity(.idle)
 		let wasAsleep = isDisplayOrSystemAsleep
@@ -1749,6 +1798,68 @@ final class AppState: ObservableObject {
 		return "unknown"
 	}
 
+	private func updateVoiceClipCommandListening() {
+		voiceCommandOperationGeneration &+= 1
+		let generation = voiceCommandOperationGeneration
+		voiceCommandStartTask?.cancel()
+		voiceCommandStartTask = nil
+
+		guard voiceClipCommandEnabled else {
+			voiceCommandDetector.stop()
+			voiceClipCommandState = .stopped
+			return
+		}
+
+		guard shouldListenForVoiceClipCommand else {
+			voiceCommandDetector.stop()
+			voiceClipCommandState = .waitingForInstantReplay
+			return
+		}
+
+		voiceCommandStartTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let state = await voiceCommandDetector.start()
+			guard !Task.isCancelled,
+			      self.voiceCommandOperationGeneration == generation,
+			      self.shouldListenForVoiceClipCommand
+			else { return }
+			self.voiceCommandStartTask = nil
+			self.voiceClipCommandState = state
+		}
+	}
+
+	private var shouldListenForVoiceClipCommand: Bool {
+		voiceClipCommandEnabled
+			&& !isTerminating
+			&& selectedRecordingMode == .instantReplay
+			&& activeRecordingMode == .instantReplay
+			&& isCapturing
+			&& !isCaptureTransitioning
+	}
+
+	/// Re-evaluates TCC and Speech capability after app activation without
+	/// starting voice recognition unless Instant Replay still owns a live buffer.
+	private func refreshVoiceClipCommandIfNeeded() {
+		guard shouldListenForVoiceClipCommand else {
+			updateVoiceClipCommandListening()
+			return
+		}
+
+		voiceCommandOperationGeneration &+= 1
+		let generation = voiceCommandOperationGeneration
+		voiceCommandStartTask?.cancel()
+		voiceCommandStartTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let state = await voiceCommandDetector.refresh()
+			guard !Task.isCancelled,
+			      self.voiceCommandOperationGeneration == generation,
+			      self.shouldListenForVoiceClipCommand
+			else { return }
+			self.voiceCommandStartTask = nil
+			self.voiceClipCommandState = state
+		}
+	}
+
 	private func updateGlobalHotkeys() {
 		hotkeyManager.updateHotkeys(
 			saveReplay: selectedRecordingMode == .instantReplay ? hotkey : nil,
@@ -1800,6 +1911,7 @@ final class AppState: ObservableObject {
 				enabledUploadProviderIDs: enabledUploadProviderIDs,
 				recordMicrophoneEnabled: recordMicrophoneEnabled,
 				recordDesktopAudioEnabled: recordDesktopAudioEnabled,
+				voiceClipCommandEnabled: voiceClipCommandEnabled,
 				captureTargetPromptEnabled: captureTargetPromptEnabled,
 				microphoneDeviceID: selectedMicrophoneDeviceID,
 				outputDirectoryPath: outputDirectoryPath
