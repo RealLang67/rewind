@@ -641,11 +641,12 @@ final class SystemAppleSpeechRecognitionBackend: NSObject, AppleSpeechRecognitio
 
 		if !hasInstalledTap {
 			let slot = requestSlot
-			inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
+			let appendBuffer: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { [slot] buffer, _ in
 				slot.withValue { request in
 					request.append(buffer)
 				}
 			}
+			inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format, block: appendBuffer)
 			hasInstalledTap = true
 		}
 
