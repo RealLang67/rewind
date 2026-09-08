@@ -46,6 +46,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(settings.analyticsEnabled, AppSettings.default.analyticsEnabled)
 		XCTAssertEqual(settings.enabledUploadProviderIDs, AppSettings.default.enabledUploadProviderIDs)
 		XCTAssertEqual(settings.recordMicrophoneEnabled, AppSettings.default.recordMicrophoneEnabled)
+		XCTAssertEqual(settings.voiceClipCommandEnabled, AppSettings.default.voiceClipCommandEnabled)
 	}
 
 	func testSaveThenLoadPersistsValues() {
@@ -83,6 +84,7 @@ final class AppSettingsStorageTests: XCTestCase {
 			enabledUploadProviderIDs: [ClipUploadProvider.catboxID],
 			recordMicrophoneEnabled: true,
 			recordDesktopAudioEnabled: false,
+			voiceClipCommandEnabled: true,
 			captureTargetPromptEnabled: false,
 			microphoneDeviceID: "com.example.mic.usb",
 			outputDirectoryPath: "/Users/example/Desktop/Clips"
@@ -99,6 +101,7 @@ final class AppSettingsStorageTests: XCTestCase {
 		XCTAssertEqual(loaded.audioCodecID, expected.audioCodecID)
 		XCTAssertEqual(loaded.recordingModeID, expected.recordingModeID)
 		XCTAssertEqual(loaded.recordingMode, RecordingMode.recording)
+		XCTAssertEqual(loaded.voiceClipCommandEnabled, expected.voiceClipCommandEnabled)
 		XCTAssertEqual(loaded.hotkey, expected.hotkey)
 		XCTAssertEqual(loaded.startRecordingHotkey, expected.startRecordingHotkey)
 		XCTAssertEqual(loaded.stopRecordingHotkey, expected.stopRecordingHotkey)

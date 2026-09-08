@@ -118,6 +118,44 @@ adhoc_sign() {
   codesign --verify --deep --strict --verbose=2 "${target_path}"
 }
 
+verify_universal_mach_o_files() {
+  local bundle_path="$1"
+  local file_path
+  local file_description
+  local verified_count=0
+
+  if ! command -v lipo >/dev/null 2>&1; then
+    echo "lipo is required to verify Universal 2 artifacts" >&2
+    return 1
+  fi
+
+  echo "Verifying Universal 2 architectures in ${bundle_path}..."
+  while IFS= read -r -d '' file_path; do
+    file_description="$(file -b "${file_path}")"
+    # Static archives are included as a safeguard: none are currently bundled,
+    # but an architecture-specific one must not silently enter a future release.
+    if [[ "${file_description}" != *"Mach-O"* && "${file_description}" != *"current ar archive"* ]]; then
+      continue
+    fi
+
+    if ! lipo "${file_path}" -verify_arch arm64 x86_64; then
+      echo "Universal 2 verification failed: ${file_path}" >&2
+      file "${file_path}" >&2
+      return 1
+    fi
+
+    lipo -info "${file_path}"
+    verified_count=$((verified_count + 1))
+  done < <(find "${bundle_path}" -type f -print0)
+
+  if [[ "${verified_count}" -eq 0 ]]; then
+    echo "No Mach-O binaries found to verify in ${bundle_path}" >&2
+    return 1
+  fi
+
+  echo "Verified ${verified_count} Universal 2 Mach-O file(s)."
+}
+
 mkdir -p "${DIST_DIR}"
 
 echo "Cleaning ${DIST_DIR}..."
@@ -203,6 +241,8 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>Rewind needs screen capture access to record your screen.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Rewind needs microphone access to record microphone audio.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Rewind uses on-device speech recognition for the optional “Hey Rewind, clip that” voice command.</string>
 </dict>
 </plist>
 EOF
@@ -242,6 +282,7 @@ cat > "${STAGING_ROOT}/Rewind.entitlements" <<EOF
 EOF
 
 adhoc_sign "${APP_BUNDLE}" "app bundle" "${STAGING_ROOT}/Rewind.entitlements"
+verify_universal_mach_o_files "${APP_BUNDLE}"
 
 echo "Creating drag-and-drop DMG..."
 remove_path "${DMG_PATH}" "disk image" || exit 1
