@@ -585,7 +585,7 @@ final class AppState: ObservableObject {
 		self.discordRPCClient = discordRPCClient
 		self.analytics = analytics
 		self.hotkeyManager = hotkeyManager
-		self.voiceCommandDetector = voiceCommandDetector ?? AppleSpeechVoiceCommandDetector()
+		self.voiceCommandDetector = voiceCommandDetector ?? WhisperVoiceCommandDetector()
 
 		let dotaGSIAuthToken = UUID().uuidString
 		let dotaGSIServer = DotaGSIServer(port: DotaGSIServer.defaultPort, authToken: dotaGSIAuthToken)

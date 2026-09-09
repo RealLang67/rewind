@@ -19,6 +19,7 @@ enum VoiceCommandUnavailableReason: Equatable {
 	case noAudioInput
 	case audioEngineFailure
 	case repeatedRecognitionFailures
+	case whisperRuntimeUnavailable
 
 	var userDescription: String {
 		switch self {
@@ -40,6 +41,8 @@ enum VoiceCommandUnavailableReason: Equatable {
 			return "The microphone could not be started for voice clipping."
 		case .repeatedRecognitionFailures:
 			return "Voice recognition repeatedly failed. Try disabling and re-enabling it."
+		case .whisperRuntimeUnavailable:
+			return "The bundled offline voice-recognition runtime is unavailable. Reinstall Rewind."
 		}
 	}
 }
