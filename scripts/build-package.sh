@@ -165,6 +165,8 @@ for path in "${DIST_DIR}"/*; do
 done
 shopt -u dotglob nullglob
 
+"${PROJECT_ROOT}/scripts/build-whisper-helper.sh"
+
 echo "Building ${APP_NAME} in release mode..."
 swift build -c release --package-path "${PROJECT_ROOT}" --product "${APP_NAME}" --arch arm64 --arch x86_64
 
@@ -189,7 +191,11 @@ if [[ -f "${PROJECT_ROOT}/Resources/AppIcon.icns" ]]; then
 fi
 
 if [[ -d "${PROJECT_ROOT}/Resources/Sounds" ]]; then
-  cp -R "${PROJECT_ROOT}/Resources/Sounds/" "${RESOURCES_DIR}/"
+	cp -R "${PROJECT_ROOT}/Resources/Sounds/" "${RESOURCES_DIR}/"
+fi
+
+if [[ -d "${PROJECT_ROOT}/Resources/Whisper" ]]; then
+	ditto "${PROJECT_ROOT}/Resources/Whisper" "${RESOURCES_DIR}/Whisper"
 fi
 
 if [[ -f "${PROJECT_ROOT}/Resources/games.tsv" ]]; then
@@ -241,8 +247,6 @@ cat > "${CONTENTS_DIR}/Info.plist" <<EOF
   <string>Rewind needs screen capture access to record your screen.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Rewind needs microphone access to record microphone audio.</string>
-  <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Rewind uses on-device speech recognition for the optional “Hey Rewind, clip that” voice command.</string>
 </dict>
 </plist>
 EOF
